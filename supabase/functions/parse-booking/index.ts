@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { parseBookingEmail } from "./parser.ts";
 import { generateIcs } from "./ics.ts";
 import {
+  lookupUserBySenderEmail,
+  fetchUserEventsForContext,
   hasProcessedEmail,
   createReceivedEmail,
   updateEmailStatus,
@@ -14,12 +16,6 @@ import {
   fetchReceivedEmail,
   fetchAttachmentContent,
 } from "./email.ts";
-
-// Only process emails from these addresses
-const ALLOWED_SENDERS = [
-  "REDACTED",
-  "REDACTED",
-];
 
 // Domain used for ICS UIDs
 const ICS_DOMAIN = "calendar-helper.supabase.co";
@@ -104,14 +100,17 @@ Deno.serve(async (req: Request) => {
 
   console.log(`Received email from: ${senderEmail}, subject: ${emailSubject}, id: ${emailId}`);
 
-  // Sender whitelist check
-  if (!ALLOWED_SENDERS.includes(senderEmail.toLowerCase())) {
-    console.warn(`Rejected email from unauthorized sender: ${senderEmail}`);
+  // Look up sender in user_emails table (replaces hardcoded whitelist)
+  const userInfo = await lookupUserBySenderEmail(senderEmail);
+  if (!userInfo) {
+    console.warn(`Rejected email from unregistered sender: ${senderEmail}`);
     return new Response(
-      JSON.stringify({ ok: true, rejected: "unauthorized sender" }),
+      JSON.stringify({ ok: true, rejected: "unregistered sender" }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   }
+
+  console.log(`Matched sender to user: ${userInfo.userId}, reply to: ${userInfo.primaryEmail}`);
 
   // Deduplication: skip if we've already processed this email
   if (emailId) {
@@ -174,8 +173,8 @@ Deno.serve(async (req: Request) => {
     const rawContent = emailBody + attachmentText;
     const fullContent = cleanContentForLlm(rawContent);
 
-    // Step 4: Create the received_emails row (stores raw email, tracks status)
-    emailRowId = await createReceivedEmail(emailId, emailSubject, senderEmail, rawContent);
+    // Step 4: Create the received_emails row (with user_id)
+    emailRowId = await createReceivedEmail(emailId, emailSubject, senderEmail, rawContent, userInfo.userId);
     console.log(`Created received_emails row: ${emailRowId}`);
 
     if (fullContent.trim().length === 0) {
@@ -184,6 +183,7 @@ Deno.serve(async (req: Request) => {
       await sendParseFailureEmail(
         resendApiKey,
         resendFromAddress,
+        userInfo.primaryEmail,
         emailSubject,
         "Could not retrieve any email content. The email body and attachments were empty."
       );
@@ -193,12 +193,19 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 5: Parse booking with Claude
+    // Step 5: Fetch existing events for travel time context
+    console.log("Fetching existing events for itinerary context...");
+    const existingEvents = await fetchUserEventsForContext(userInfo.userId);
+    console.log(`Found ${existingEvents.length} existing events for context`);
+
+    // Step 6: Parse booking with Claude (with itinerary context)
     console.log(`Calling Claude API to parse booking (${fullContent.length} chars)...`);
     const parseResult = await parseBookingEmail(
       emailSubject,
       fullContent,
-      anthropicApiKey
+      anthropicApiKey,
+      existingEvents,
+      userInfo.homeBase
     );
 
     if (parseResult.events.length === 0) {
@@ -207,6 +214,7 @@ Deno.serve(async (req: Request) => {
       await sendParseFailureEmail(
         resendApiKey,
         resendFromAddress,
+        userInfo.primaryEmail,
         emailSubject,
         "No booking events could be detected in this email. It may not be a booking confirmation."
       );
@@ -218,27 +226,29 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Parsed ${parseResult.events.length} event(s)`);
 
-    // Step 6: Save events linked to the email row
-    const savedEvents = await saveEvents(emailRowId, parseResult.events);
+    // Step 7: Save events linked to the email row (with user_id)
+    const savedEvents = await saveEvents(emailRowId, parseResult.events, userInfo.userId);
     await updateEmailStatus(emailRowId, "parsed", savedEvents.length);
     console.log(`Saved ${savedEvents.length} event(s) to database`);
 
-    // Step 7: Generate ICS (all events from this email in one .ics file)
+    // Step 8: Generate ICS (all events from this email in one .ics file)
     const icsContent = generateIcs(parseResult.events, ICS_DOMAIN);
 
     // Build event summary for the reply email body
     const eventSummary = parseResult.events
       .map((e) => {
         const ref = e.bookingReference ? ` (Ref: ${e.bookingReference})` : "";
-        return `${e.type.toUpperCase()}: ${e.title}${ref}`;
+        const leaveNote = e.leaveByNote ? ` — ${e.leaveByNote}` : "";
+        return `${e.type.toUpperCase()}: ${e.title}${ref}${leaveNote}`;
       })
       .join("<br>");
 
-    // Step 8: Send calendar email (one reply per inbound email, with all events)
-    console.log("Sending calendar email...");
+    // Step 9: Send calendar email to user's primary email
+    console.log(`Sending calendar email to ${userInfo.primaryEmail}...`);
     await sendCalendarEmail(
       resendApiKey,
       resendFromAddress,
+      userInfo.primaryEmail,
       emailSubject,
       icsContent,
       eventSummary
@@ -252,6 +262,7 @@ Deno.serve(async (req: Request) => {
         ok: true,
         events: parseResult.events.length,
         saved: savedEvents.length,
+        userId: userInfo.userId,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
@@ -274,6 +285,7 @@ Deno.serve(async (req: Request) => {
         await sendParseFailureEmail(
           resendApiKey!,
           resendFromAddress,
+          userInfo?.primaryEmail ?? senderEmail,
           emailSubject,
           errorMessage
         );

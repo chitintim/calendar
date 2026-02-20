@@ -45,6 +45,109 @@ function localToUtc(localDateTime: string, timezone: string): string {
 }
 
 // ==========================================
+// User lookup
+// ==========================================
+
+export interface UserInfo {
+  userId: string;
+  primaryEmail: string;
+  homeBase: string | null;
+}
+
+/**
+ * Look up a user by their sender email address.
+ * Returns userId, their primary email (for ICS reply), and home base city.
+ */
+export async function lookupUserBySenderEmail(
+  senderEmail: string
+): Promise<UserInfo | null> {
+  const supabase = getSupabaseClient();
+
+  // Find the user_emails entry
+  const { data: emailEntry, error: emailError } = await supabase
+    .from("user_emails")
+    .select("user_id, email, is_primary")
+    .eq("email", senderEmail.toLowerCase())
+    .single();
+
+  if (emailError || !emailEntry) {
+    return null;
+  }
+
+  // Get user's primary email if this isn't it
+  let primaryEmail = emailEntry.email;
+  if (!emailEntry.is_primary) {
+    const { data: primary } = await supabase
+      .from("user_emails")
+      .select("email")
+      .eq("user_id", emailEntry.user_id)
+      .eq("is_primary", true)
+      .single();
+
+    if (primary) {
+      primaryEmail = primary.email;
+    }
+  }
+
+  // Get user's home base from profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("base_city")
+    .eq("id", emailEntry.user_id)
+    .single();
+
+  return {
+    userId: emailEntry.user_id,
+    primaryEmail,
+    homeBase: profile?.base_city ?? null,
+  };
+}
+
+// ==========================================
+// Existing events (for travel time context)
+// ==========================================
+
+export interface ExistingEvent {
+  event_type: string;
+  title: string;
+  start_at: string;
+  start_timezone: string;
+  end_at: string;
+  end_timezone: string;
+  location: string | null;
+  end_location: string | null;
+}
+
+/**
+ * Fetch recent/upcoming events for a user to provide context for travel time estimates.
+ * Returns events within ±14 days of now, sorted by start_at.
+ */
+export async function fetchUserEventsForContext(
+  userId: string
+): Promise<ExistingEvent[]> {
+  const supabase = getSupabaseClient();
+  const now = new Date();
+  const twoWeeksBefore = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const twoWeeksAfter = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("event_type, title, start_at, start_timezone, end_at, end_timezone, location, end_location")
+    .eq("user_id", userId)
+    .gte("start_at", twoWeeksBefore)
+    .lte("start_at", twoWeeksAfter)
+    .order("start_at", { ascending: true })
+    .limit(20);
+
+  if (error) {
+    console.error("Failed to fetch existing events for context:", error);
+    return [];
+  }
+
+  return (data ?? []) as ExistingEvent[];
+}
+
+// ==========================================
 // received_emails table
 // ==========================================
 
@@ -73,7 +176,8 @@ export async function createReceivedEmail(
   resendEmailId: string,
   subject: string,
   sender: string,
-  rawBody: string
+  rawBody: string,
+  userId: string
 ): Promise<string> {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
@@ -84,6 +188,7 @@ export async function createReceivedEmail(
       sender,
       raw_body: rawBody,
       status: "pending",
+      user_id: userId,
     })
     .select("id")
     .single();
@@ -149,7 +254,8 @@ export interface SavedEvent {
  */
 export async function saveEvents(
   emailRowId: string,
-  events: ParsedEvent[]
+  events: ParsedEvent[],
+  userId: string
 ): Promise<SavedEvent[]> {
   const supabase = getSupabaseClient();
   const saved: SavedEvent[] = [];
@@ -159,6 +265,7 @@ export async function saveEvents(
       .from("events")
       .insert({
         email_id: emailRowId,
+        user_id: userId,
         event_type: event.type,
         title: event.title,
         start_at: localToUtc(event.startDateTime, event.startTimezone),
@@ -170,6 +277,15 @@ export async function saveEvents(
         is_all_day: event.isAllDay,
         booking_reference: event.bookingReference,
         notes: event.notes,
+        // New fields
+        address: event.address,
+        terminal: event.terminal,
+        gate: event.gate,
+        passenger_names: event.passengerNames,
+        provider: event.provider,
+        arrive_by_minutes: event.arriveByMinutes,
+        travel_from_previous_minutes: event.travelFromPreviousMinutes,
+        leave_by_note: event.leaveByNote,
       })
       .select("id, event_type, title")
       .single();

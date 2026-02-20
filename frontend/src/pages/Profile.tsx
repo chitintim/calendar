@@ -1,0 +1,270 @@
+import { useState, useEffect } from "react";
+import { useProfile } from "@/hooks/useProfile";
+import { supabase } from "@/lib/supabase";
+import type { UserEmail } from "@/lib/types";
+
+interface ProfileProps {
+  userId: string;
+  onUpdatePassword: (password: string) => Promise<{ error: Error | null }>;
+}
+
+export function Profile({ userId, onUpdatePassword }: ProfileProps) {
+  const { profile, loading, updateProfile } = useProfile(userId);
+  const [emails, setEmails] = useState<UserEmail[]>([]);
+
+  const [displayName, setDisplayName] = useState("");
+  const [baseCity, setBaseCity] = useState("");
+  const [baseTimezone, setBaseTimezone] = useState("");
+  const [baseCountry, setBaseCountry] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // Load profile into form
+  useEffect(() => {
+    if (profile) {
+      setDisplayName(profile.display_name ?? "");
+      setBaseCity(profile.base_city ?? "");
+      setBaseTimezone(profile.base_timezone ?? "");
+      setBaseCountry(profile.base_country ?? "");
+    }
+  }, [profile]);
+
+  // Load user emails
+  useEffect(() => {
+    async function loadEmails() {
+      const { data } = await supabase
+        .from("user_emails")
+        .select("*")
+        .eq("user_id", userId)
+        .order("is_primary", { ascending: false });
+      if (data) setEmails(data as UserEmail[]);
+    }
+    loadEmails();
+  }, [userId]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setSaveMessage(null);
+
+    const { error } = await updateProfile({
+      display_name: displayName || null,
+      base_city: baseCity || null,
+      base_timezone: baseTimezone || null,
+      base_country: baseCountry || null,
+    });
+
+    if (error) {
+      setSaveMessage(`Error: ${error.message}`);
+    } else {
+      setSaveMessage("Profile saved!");
+    }
+    setSaving(false);
+    setTimeout(() => setSaveMessage(null), 3000);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("Passwords do not match");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordMessage("Password must be at least 6 characters");
+      return;
+    }
+
+    setChangingPassword(true);
+    const { error } = await onUpdatePassword(newPassword);
+
+    if (error) {
+      setPasswordMessage(`Error: ${error.message}`);
+    } else {
+      setPasswordMessage("Password updated!");
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+    setChangingPassword(false);
+    setTimeout(() => setPasswordMessage(null), 3000);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 max-w-lg">
+      <h1 className="text-2xl font-bold text-gray-900">Profile</h1>
+
+      {/* Profile details */}
+      <form onSubmit={handleSaveProfile} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Display name
+          </label>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Base city
+          </label>
+          <input
+            type="text"
+            value={baseCity}
+            onChange={(e) => setBaseCity(e.target.value)}
+            placeholder="e.g. Hong Kong"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Timezone
+          </label>
+          <input
+            type="text"
+            value={baseTimezone}
+            onChange={(e) => setBaseTimezone(e.target.value)}
+            placeholder="e.g. Asia/Hong_Kong"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Country
+          </label>
+          <input
+            type="text"
+            value={baseCountry}
+            onChange={(e) => setBaseCountry(e.target.value)}
+            placeholder="e.g. HK"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving..." : "Save profile"}
+          </button>
+          {saveMessage && (
+            <span
+              className={`text-sm ${
+                saveMessage.startsWith("Error") ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {saveMessage}
+            </span>
+          )}
+        </div>
+      </form>
+
+      {/* Registered emails */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">
+          Registered emails
+        </h2>
+        <p className="text-sm text-gray-500 mb-3">
+          Forward booking confirmations from any of these addresses.
+        </p>
+        <div className="space-y-2">
+          {emails.map((entry) => (
+            <div
+              key={entry.id}
+              className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200"
+            >
+              <span className="text-sm font-mono text-gray-700">
+                {entry.email}
+              </span>
+              {entry.is_primary && (
+                <span className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-xs rounded font-medium">
+                  Primary
+                </span>
+              )}
+            </div>
+          ))}
+          {emails.length === 0 && (
+            <p className="text-sm text-gray-400">No emails registered.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Change password */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">
+          Change password
+        </h2>
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              New password
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              minLength={6}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Confirm new password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              minLength={6}
+              required
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="px-4 py-2 bg-gray-800 text-white font-medium rounded-lg hover:bg-gray-900 disabled:opacity-50 transition-colors"
+            >
+              {changingPassword ? "Updating..." : "Update password"}
+            </button>
+            {passwordMessage && (
+              <span
+                className={`text-sm ${
+                  passwordMessage.startsWith("Error") || passwordMessage.includes("do not match") || passwordMessage.includes("at least")
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
+                {passwordMessage}
+              </span>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

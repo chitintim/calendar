@@ -1,4 +1,5 @@
-const REPLY_TO = "REDACTED";
+// No hardcoded REPLY_TO — recipient is now passed as a parameter
+// from the user's primary email in user_emails table.
 
 // ==========================================
 // Inbound email retrieval
@@ -178,6 +179,7 @@ function unescapePdfString(s: string): string {
 export async function sendCalendarEmail(
   resendApiKey: string,
   fromAddress: string,
+  replyToAddress: string,
   subject: string,
   icsContent: string,
   eventSummary: string
@@ -210,7 +212,7 @@ export async function sendCalendarEmail(
     },
     body: JSON.stringify({
       from: fromAddress,
-      to: REPLY_TO,
+      to: replyToAddress,
       subject: `📅 ${subject}`,
       html: htmlBody,
       attachments: [
@@ -235,6 +237,7 @@ export async function sendCalendarEmail(
 export async function sendParseFailureEmail(
   resendApiKey: string,
   fromAddress: string,
+  replyToAddress: string,
   originalSubject: string,
   errorMessage: string
 ): Promise<void> {
@@ -258,7 +261,7 @@ export async function sendParseFailureEmail(
     },
     body: JSON.stringify({
       from: fromAddress,
-      to: REPLY_TO,
+      to: replyToAddress,
       subject: `⚠️ Parse failed: ${originalSubject}`,
       html: htmlBody,
     }),

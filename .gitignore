@@ -1,0 +1,8 @@
+# Claude Code settings
+.claude/
+
+# OS
+.DS_Store
+
+# Node
+node_modules/

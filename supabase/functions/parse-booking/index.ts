@@ -1,24 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { parseBookingEmail } from "./parser.ts";
-import { generateIcs } from "./ics.ts";
 import {
   lookupUserBySenderEmail,
   fetchUserEventsForContext,
   hasProcessedEmail,
   createReceivedEmail,
   updateEmailStatus,
-  markIcsSent,
   saveEvents,
 } from "./db.ts";
 import {
-  sendCalendarEmail,
-  sendParseFailureEmail,
   fetchReceivedEmail,
   fetchAttachmentContent,
 } from "./email.ts";
-
-// Domain used for ICS UIDs
-const ICS_DOMAIN = "calendar-helper.supabase.co";
 
 Deno.serve(async (req: Request) => {
   // Only accept POST
@@ -29,7 +22,6 @@ Deno.serve(async (req: Request) => {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
   const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
   const resendWebhookSecret = Deno.env.get("RESEND_WEBHOOK_SECRET");
-  const resendFromAddress = Deno.env.get("RESEND_FROM_ADDRESS") ?? "Calendar Helper <noreply@resend.dev>";
 
   if (!resendApiKey || !anthropicApiKey) {
     console.error("Missing required secrets: RESEND_API_KEY or ANTHROPIC_API_KEY");
@@ -180,13 +172,6 @@ Deno.serve(async (req: Request) => {
     if (fullContent.trim().length === 0) {
       console.warn("No email content found (body and attachments are empty)");
       await updateEmailStatus(emailRowId, "failed", 0, "Email body and attachments were empty");
-      await sendParseFailureEmail(
-        resendApiKey,
-        resendFromAddress,
-        userInfo.primaryEmail,
-        emailSubject,
-        "Could not retrieve any email content. The email body and attachments were empty."
-      );
       return new Response(
         JSON.stringify({ ok: true, events: 0, error: "empty content" }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -211,13 +196,6 @@ Deno.serve(async (req: Request) => {
     if (parseResult.events.length === 0) {
       console.log("No booking events found in email");
       await updateEmailStatus(emailRowId, "no_events", 0);
-      await sendParseFailureEmail(
-        resendApiKey,
-        resendFromAddress,
-        userInfo.primaryEmail,
-        emailSubject,
-        "No booking events could be detected in this email. It may not be a booking confirmation."
-      );
       return new Response(
         JSON.stringify({ ok: true, events: 0 }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -230,32 +208,6 @@ Deno.serve(async (req: Request) => {
     const savedEvents = await saveEvents(emailRowId, parseResult.events, userInfo.userId);
     await updateEmailStatus(emailRowId, "parsed", savedEvents.length);
     console.log(`Saved ${savedEvents.length} event(s) to database`);
-
-    // Step 8: Generate ICS (all events from this email in one .ics file)
-    const icsContent = generateIcs(parseResult.events, ICS_DOMAIN);
-
-    // Build event summary for the reply email body
-    const eventSummary = parseResult.events
-      .map((e) => {
-        const ref = e.bookingReference ? ` (Ref: ${e.bookingReference})` : "";
-        const leaveNote = e.leaveByNote ? ` — ${e.leaveByNote}` : "";
-        return `${e.type.toUpperCase()}: ${e.title}${ref}${leaveNote}`;
-      })
-      .join("<br>");
-
-    // Step 9: Send calendar email to user's primary email
-    console.log(`Sending calendar email to ${userInfo.primaryEmail}...`);
-    await sendCalendarEmail(
-      resendApiKey,
-      resendFromAddress,
-      userInfo.primaryEmail,
-      emailSubject,
-      icsContent,
-      eventSummary
-    );
-    console.log("Calendar email sent successfully");
-
-    await markIcsSent(emailRowId);
 
     return new Response(
       JSON.stringify({
@@ -280,27 +232,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // API errors → 200 (no retry). Transient errors → 500 (Resend retries).
-    if (errorMessage.includes("Claude") || errorMessage.includes("Resend")) {
-      try {
-        await sendParseFailureEmail(
-          resendApiKey!,
-          resendFromAddress,
-          userInfo?.primaryEmail ?? senderEmail,
-          emailSubject,
-          errorMessage
-        );
-      } catch {
-        // Best effort
-      }
-      return new Response(
-        JSON.stringify({ ok: false, error: errorMessage }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
+    const isApiError = errorMessage.includes("Claude") || errorMessage.includes("Resend");
     return new Response(
       JSON.stringify({ ok: false, error: errorMessage }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: isApiError ? 200 : 500, headers: { "Content-Type": "application/json" } }
     );
   }
 });

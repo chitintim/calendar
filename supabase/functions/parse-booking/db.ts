@@ -56,7 +56,7 @@ export interface UserInfo {
 
 /**
  * Look up a user by their sender email address.
- * Returns userId, their primary email (for ICS reply), and home base city.
+ * Returns userId, their primary email, and home base city.
  */
 export async function lookupUserBySenderEmail(
   senderEmail: string
@@ -221,21 +221,6 @@ export async function updateEmailStatus(
 
   if (error) {
     console.error("Failed to update email status:", error);
-  }
-}
-
-/**
- * Mark email as having its ICS sent.
- */
-export async function markIcsSent(emailRowId: string): Promise<void> {
-  const supabase = getSupabaseClient();
-  const { error } = await supabase
-    .from("received_emails")
-    .update({ ics_sent: true })
-    .eq("id", emailRowId);
-
-  if (error) {
-    console.error("Failed to mark ics_sent:", error);
   }
 }
 

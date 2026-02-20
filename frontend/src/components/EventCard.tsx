@@ -14,9 +14,38 @@ interface EventCardProps {
   event: CalendarEvent;
   showDate?: boolean;
   compact?: boolean;
+  // Owner badge (for group timeline)
+  ownerName?: string;
+  ownerInitial?: string;
+  ownerColor?: "blue" | "rose";
+  // Selection mode
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function EventCard({ event, showDate = true, compact = false }: EventCardProps) {
+const OWNER_COLORS = {
+  blue: {
+    bg: "bg-blue-100",
+    text: "text-blue-700",
+  },
+  rose: {
+    bg: "bg-rose-100",
+    text: "text-rose-700",
+  },
+};
+
+export function EventCard({
+  event,
+  showDate = true,
+  compact = false,
+  ownerName,
+  ownerInitial,
+  ownerColor = "blue",
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: EventCardProps) {
   const urgency = getUrgencyStatus(event);
   const mustLeaveTime = getMustLeaveTime(event);
   const mustLeaveFormatted = formatMustLeaveBy(event);
@@ -29,9 +58,34 @@ export function EventCard({ event, showDate = true, compact = false }: EventCard
   const icon = getEventIcon(event.event_type);
   const typeName = getEventTypeName(event.event_type);
 
+  const colors = OWNER_COLORS[ownerColor];
+
+  const handleClick = () => {
+    if (selectable && onToggleSelect) {
+      onToggleSelect(event.id);
+    }
+  };
+
   if (compact) {
     return (
-      <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+      <div
+        className={`flex items-center gap-3 p-3 bg-white rounded-lg border transition-colors ${
+          selectable ? "cursor-pointer" : ""
+        } ${
+          selected
+            ? "border-red-300 bg-red-50"
+            : "border-gray-200"
+        }`}
+        onClick={handleClick}
+      >
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(event.id)}
+            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
+          />
+        )}
         <span className="text-2xl">{icon}</span>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-gray-900 truncate">{event.title}</p>
@@ -42,20 +96,54 @@ export function EventCard({ event, showDate = true, compact = false }: EventCard
             )}
           </p>
         </div>
+        {ownerInitial && (
+          <span
+            className={`flex-shrink-0 w-6 h-6 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center text-xs font-bold`}
+            title={ownerName}
+          >
+            {ownerInitial}
+          </span>
+        )}
         <StatusBadge status={urgency} />
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div
+      className={`bg-white rounded-xl border shadow-sm overflow-hidden transition-colors ${
+        selectable ? "cursor-pointer" : ""
+      } ${
+        selected
+          ? "border-red-300 ring-1 ring-red-200"
+          : "border-gray-200"
+      }`}
+      onClick={handleClick}
+    >
       {/* Header with type badge */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
         <div className="flex items-center gap-2">
+          {selectable && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect?.(event.id)}
+              className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <span className="text-lg">{icon}</span>
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
             {typeName}
           </span>
+          {ownerInitial && (
+            <span
+              className={`w-5 h-5 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center text-[10px] font-bold`}
+              title={ownerName}
+            >
+              {ownerInitial}
+            </span>
+          )}
         </div>
         <StatusBadge status={urgency} />
       </div>

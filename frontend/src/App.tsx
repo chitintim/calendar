@@ -6,6 +6,7 @@ import { Login } from "@/pages/Login";
 import { ResetPassword } from "@/pages/ResetPassword";
 import { Dashboard } from "@/pages/Dashboard";
 import { Timeline } from "@/pages/Timeline";
+import { Groups } from "@/pages/Groups";
 import { Profile } from "@/pages/Profile";
 
 export default function App() {
@@ -33,6 +34,10 @@ export default function App() {
         <Route
           path="/timeline"
           element={<Timeline userId={user?.id ?? ""} />}
+        />
+        <Route
+          path="/groups"
+          element={<Groups userId={user?.id ?? ""} />}
         />
         <Route
           path="/profile"

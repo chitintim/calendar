@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { useNextEvent } from "@/hooks/useEvents";
 import { useProfile } from "@/hooks/useProfile";
 import { useCountdown } from "@/hooks/useCountdown";
+import { useGroupTimeline } from "@/hooks/useGroupTimeline";
 import { EventCard } from "@/components/EventCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -17,6 +19,43 @@ export function Dashboard({ userId }: DashboardProps) {
   const { profile } = useProfile(userId);
   const { events: nextEvents, loading } = useNextEvent(userId);
   const nextEvent = nextEvents[0] ?? null;
+
+  // Fetch group timeline data for together periods
+  const { togetherPeriods, partnerEvents, profiles } = useGroupTimeline({
+    userId,
+  });
+
+  // Find the next future together period
+  const nextTogether = useMemo(() => {
+    const now = new Date();
+    return togetherPeriods.find((p) => p.endAt > now) ?? null;
+  }, [togetherPeriods]);
+
+  const togetherCountdownText = useCountdown(
+    nextTogether && nextTogether.startAt > new Date()
+      ? nextTogether.startAt
+      : null
+  );
+
+  // Is currently together?
+  const isCurrentlyTogether = useMemo(() => {
+    if (!nextTogether) return false;
+    const now = new Date();
+    return nextTogether.startAt <= now && nextTogether.endAt > now;
+  }, [nextTogether]);
+
+  // Partner's next event
+  const partnerNextEvent = useMemo(() => {
+    const now = new Date();
+    return (
+      partnerEvents.find((e) => new Date(e.start_at) > now) ?? null
+    );
+  }, [partnerEvents]);
+
+  const partnerProfile = useMemo(() => {
+    if (!partnerNextEvent) return null;
+    return profiles[partnerNextEvent.user_id] ?? null;
+  }, [partnerNextEvent, profiles]);
 
   const mustLeaveTime = nextEvent ? getMustLeaveTime(nextEvent) : null;
   const urgency = nextEvent ? getUrgencyStatus(nextEvent) : null;
@@ -48,6 +87,42 @@ export function Dashboard({ userId }: DashboardProps) {
           </p>
         )}
       </div>
+
+      {/* Together countdown / status */}
+      {nextTogether && (
+        <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-2xl border border-rose-200 shadow-sm p-5">
+          {isCurrentlyTogether ? (
+            <>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">{"\uD83D\uDC95"}</span>
+                <h2 className="text-lg font-bold text-rose-800">
+                  Together in {nextTogether.city}!
+                </h2>
+              </div>
+              <p className="text-rose-600 text-sm">
+                {nextTogether.users.join(" & ")}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">{"\u2764\uFE0F"}</span>
+                <h2 className="text-lg font-bold text-rose-800">
+                  Together in {nextTogether.city}
+                </h2>
+              </div>
+              {togetherCountdownText && (
+                <p className="text-2xl font-bold text-rose-600">
+                  in {togetherCountdownText}
+                </p>
+              )}
+              <p className="text-rose-500 text-sm mt-1">
+                {nextTogether.users.join(" & ")}
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Next event hero */}
       {nextEvent ? (
@@ -109,6 +184,16 @@ export function Dashboard({ userId }: DashboardProps) {
           <p className="text-gray-500 text-sm mt-1">
             Forward a booking confirmation email to get started.
           </p>
+        </div>
+      )}
+
+      {/* Partner's next event */}
+      {partnerNextEvent && partnerProfile && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
+            {partnerProfile.display_name ?? "Partner"}&apos;s Next
+          </h2>
+          <EventCard event={partnerNextEvent} compact />
         </div>
       )}
     </div>

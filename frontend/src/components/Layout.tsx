@@ -9,6 +9,7 @@ interface LayoutProps {
 const navItems = [
   { to: "/", label: "Dashboard", icon: "\uD83C\uDFE0" },
   { to: "/timeline", label: "Timeline", icon: "\uD83D\uDCC5" },
+  { to: "/groups", label: "Groups", icon: "\uD83D\uDC65" },
   { to: "/profile", label: "Profile", icon: "\uD83D\uDC64" },
 ];
 

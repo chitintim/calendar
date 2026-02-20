@@ -61,6 +61,11 @@ export const COUNTRIES: CountryOption[] = [
     timezones: [{ value: "Asia/Kuala_Lumpur", label: "Kuala Lumpur (GMT+8)" }],
   },
   {
+    code: "VN",
+    name: "Vietnam",
+    timezones: [{ value: "Asia/Ho_Chi_Minh", label: "Ho Chi Minh City (GMT+7)" }],
+  },
+  {
     code: "TH",
     name: "Thailand",
     timezones: [{ value: "Asia/Bangkok", label: "Bangkok (GMT+7)" }],

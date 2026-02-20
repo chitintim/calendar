@@ -133,6 +133,14 @@ function extractCity(location: string | null): string | null {
     return AIRPORT_CITY[bareMatch[1]]!;
   }
 
+  // Try bare 3-letter code anywhere in the string (for "Terminal 1, HKG" patterns)
+  const anyCodeMatch = location.match(/\b([A-Z]{3})\b/g);
+  if (anyCodeMatch) {
+    for (const code of anyCodeMatch) {
+      if (AIRPORT_CITY[code]) return AIRPORT_CITY[code]!;
+    }
+  }
+
   // Try to extract city from "City Name" or "Hotel, City" patterns
   // For hotels/restaurants: "Hilton, London" → "London"
   const commaCity = location.match(/,\s*([^,]+)$/);
@@ -166,20 +174,95 @@ function getDepartureCity(event: CalendarEvent): string | null {
 }
 
 // ============================================
-// Location segments
+// Constants
 // ============================================
+
+const TRANSIT_TYPES = new Set(["flight", "train", "ferry", "bus", "transfer"]);
 
 // How far back/forward to extend home base segments
 const LOOKBACK_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 const LOOKFORWARD_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 
+// Minimum hours for a city segment to be considered a real stay (not a layover)
+const MIN_STAY_HOURS = 8;
+
+// ============================================
+// Location segments
+// ============================================
+
+/**
+ * Detect consecutive transit events that form a multi-leg journey.
+ * Groups flights that are within a few hours of each other (layover)
+ * into a single journey from origin to final destination.
+ *
+ * Example: HKG → AUH (layover 2h) → LHR becomes one journey HKG → LHR.
+ * The layover city (Abu Dhabi) is NOT treated as a location segment.
+ */
+function groupTransitLegs(sorted: CalendarEvent[]): Map<number, { skipSegment: boolean; finalArrivalCity: string | null; finalArrivalTime: Date }> {
+  const transitGroups = new Map<number, { skipSegment: boolean; finalArrivalCity: string | null; finalArrivalTime: Date }>();
+
+  let i = 0;
+  while (i < sorted.length) {
+    const event = sorted[i]!;
+    if (!TRANSIT_TYPES.has(event.event_type)) {
+      i++;
+      continue;
+    }
+
+    // Start of a potential multi-leg journey
+    let lastLeg = event;
+    let j = i + 1;
+
+    while (j < sorted.length) {
+      const nextEvent = sorted[j]!;
+      if (!TRANSIT_TYPES.has(nextEvent.event_type)) break;
+
+      // Check if it's a layover (next departure within 8h of previous arrival)
+      const prevArrival = new Date(lastLeg.end_at).getTime();
+      const nextDeparture = new Date(nextEvent.start_at).getTime();
+      const gapHours = (nextDeparture - prevArrival) / (1000 * 60 * 60);
+
+      if (gapHours < MIN_STAY_HOURS && gapHours >= 0) {
+        // This is a layover — mark intermediate legs as skippable
+        transitGroups.set(j, {
+          skipSegment: false, // The final leg is NOT skipped
+          finalArrivalCity: getArrivalCity(nextEvent),
+          finalArrivalTime: new Date(nextEvent.end_at),
+        });
+        // Mark the earlier legs as "skip" (don't create arrival segments for them)
+        for (let k = i; k < j; k++) {
+          if (TRANSIT_TYPES.has(sorted[k]!.event_type)) {
+            transitGroups.set(k, {
+              skipSegment: true,
+              finalArrivalCity: getArrivalCity(nextEvent),
+              finalArrivalTime: new Date(nextEvent.end_at),
+            });
+          }
+        }
+        lastLeg = nextEvent;
+        j++;
+      } else {
+        break;
+      }
+    }
+
+    i = j;
+  }
+
+  return transitGroups;
+}
+
 /**
  * Build a timeline of where a user is located based on their events.
  * Each segment represents a period where the user is in a specific city.
  *
- * Key improvement: if the user has a homeCity, we create a home-base segment
- * before their first departure and after their final arrival (when they return home).
- * If the user has no events at all, we create one long home segment.
+ * Key features:
+ * - Home base: if the user has a homeCity, creates home segments before first event
+ *   and after last event (when they return home). If no events, one long home segment.
+ * - Layover detection: consecutive transit with short gaps are grouped into one journey,
+ *   so layover cities (e.g., Dubai, Abu Dhabi) don't create false segments.
+ * - Transit inference: if a transit event departs from city X but user was last known
+ *   in city Y, we infer they moved from Y→X at some point (creates an X segment).
  */
 export function buildLocationSegments(
   events: CalendarEvent[],
@@ -203,16 +286,15 @@ export function buildLocationSegments(
     (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
   );
 
+  // Pre-compute multi-leg transit groupings
+  const transitGroups = groupTransitLegs(sorted);
+
   const segments: LocationSegment[] = [];
 
   // ---- Pre-first-event home segment ----
-  // If user has a home city, they're there from the lookback start until
-  // their first transit departure (or first event).
   const firstEvent = sorted[0]!;
   const firstEventStart = new Date(firstEvent.start_at);
-  const isFirstTransit = ["flight", "train", "ferry", "bus", "transfer"].includes(
-    firstEvent.event_type
-  );
+  const isFirstTransit = TRANSIT_TYPES.has(firstEvent.event_type);
 
   if (homeCity) {
     const homeSegmentStart = new Date(
@@ -227,7 +309,6 @@ export function buildLocationSegments(
       });
     } else {
       // First event is non-transit (hotel, activity, etc.)
-      // If it's in a different city, home until that event. Otherwise, home until that event start.
       const eventCity = extractCity(firstEvent.location);
       if (eventCity && normalizeCity(eventCity) !== normalizeCity(homeCity)) {
         segments.push({
@@ -236,7 +317,6 @@ export function buildLocationSegments(
           to: firstEventStart,
         });
       }
-      // If same city, the home segment merges naturally below
     }
   }
 
@@ -246,8 +326,6 @@ export function buildLocationSegments(
 
   // If we created a pre-home segment, start tracking from that point
   if (homeCity && segments.length > 0) {
-    // We already have the home segment before first event.
-    // Now set current state for the loop.
     if (isFirstTransit) {
       currentCity = null; // in transit
       cityStartTime = null;
@@ -264,13 +342,64 @@ export function buildLocationSegments(
     const eventStart = new Date(event.start_at);
     const eventEnd = new Date(event.end_at);
 
-    const isTransit = ["flight", "train", "ferry", "bus", "transfer"].includes(
-      event.event_type
-    );
+    const isTransit = TRANSIT_TYPES.has(event.event_type);
 
     if (isTransit) {
-      // Close current city segment at departure time
-      if (currentCity && cityStartTime) {
+      // Check if this leg is part of a multi-leg journey and should be skipped
+      const transitInfo = transitGroups.get(i);
+      if (transitInfo?.skipSegment) {
+        // This is an intermediate leg (e.g., HKG→AUH in HKG→AUH→LHR).
+        // Close current city segment at departure but don't create arrival segment.
+        if (currentCity && cityStartTime) {
+          segments.push({
+            city: currentCity,
+            from: cityStartTime,
+            to: eventStart,
+          });
+        }
+        currentCity = null;
+        cityStartTime = null;
+        continue;
+      }
+
+      // Departure city inference: if the transit departs from a different city
+      // than where we think the user is, they must have traveled there
+      const departureCity = getDepartureCity(event);
+      if (
+        departureCity &&
+        currentCity &&
+        normalizeCity(departureCity) !== normalizeCity(currentCity)
+      ) {
+        // User moved from currentCity to departureCity at some unrecorded point.
+        // Close the currentCity segment, then create a segment in departureCity.
+        if (cityStartTime) {
+          // Don't let currentCity segment extend too long if there's a big gap
+          const maxCurrentEnd = new Date(
+            Math.min(
+              eventStart.getTime(),
+              cityStartTime.getTime() + 7 * 24 * 60 * 60 * 1000 // max 7 days extension
+            )
+          );
+          segments.push({
+            city: currentCity,
+            from: cityStartTime,
+            to: maxCurrentEnd,
+          });
+
+          // Create an inferred segment in the departure city
+          if (maxCurrentEnd.getTime() < eventStart.getTime()) {
+            segments.push({
+              city: departureCity,
+              from: maxCurrentEnd,
+              to: eventStart,
+            });
+          }
+        } else {
+          // No previous city start — just note user was in departure city
+          // This shouldn't normally happen but handle gracefully
+        }
+      } else if (currentCity && cityStartTime) {
+        // Normal case: close current city segment at departure time
         segments.push({
           city: currentCity,
           from: cityStartTime,
@@ -278,14 +407,15 @@ export function buildLocationSegments(
         });
       }
 
-      // Arrive at new city
-      const arrivalCity = getArrivalCity(event);
+      // Arrive at new city (using final destination if multi-leg)
+      const arrivalCity = transitInfo?.finalArrivalCity ?? getArrivalCity(event);
+      const arrivalTime = transitInfo?.finalArrivalTime ?? eventEnd;
       currentCity = arrivalCity;
-      cityStartTime = eventEnd;
+      cityStartTime = arrivalTime;
     } else {
       // Non-transit event — user is at this location
       const eventCity = extractCity(event.location);
-      if (eventCity && eventCity !== currentCity) {
+      if (eventCity && (!currentCity || normalizeCity(eventCity) !== normalizeCity(currentCity))) {
         // City changed (maybe they traveled without a flight record)
         if (currentCity && cityStartTime) {
           segments.push({

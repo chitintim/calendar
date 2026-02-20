@@ -121,14 +121,26 @@ Deno.serve(async (req: Request) => {
   try {
     // Step 1: Fetch the full email content from Resend API
     console.log("Fetching full email content from Resend API...");
-    const fullEmail = await fetchReceivedEmail(resendApiKey, emailId);
+    let fullEmail;
+    try {
+      fullEmail = await fetchReceivedEmail(resendApiKey, emailId);
+    } catch (fetchErr) {
+      console.error("Failed to fetch email from Resend:", fetchErr instanceof Error ? fetchErr.message : String(fetchErr));
+      throw fetchErr;
+    }
+    // Use plain text preferably to reduce memory; only fall back to HTML
     const emailBody = fullEmail.text || fullEmail.html || "";
-    console.log(`Email body length: ${emailBody.length} chars, attachments: ${fullEmail.attachments?.length ?? 0}`);
+    console.log(`Email body length: ${emailBody.length} chars, html length: ${fullEmail.html?.length ?? 0}, attachments: ${fullEmail.attachments?.length ?? 0}`);
 
+    // Release HTML from memory early — we only need the text or a cleaned version
+    const attachments = fullEmail.attachments ?? [];
+    fullEmail = null as any; // free memory
+
+    console.log("[step 2] Processing attachments...");
     // Step 2: Extract text from PDF attachments
     let attachmentText = "";
-    if (fullEmail.attachments && fullEmail.attachments.length > 0) {
-      for (const att of fullEmail.attachments) {
+    if (attachments.length > 0) {
+      for (const att of attachments) {
         console.log(`Processing attachment: ${att.filename} (${att.content_type})`);
 
         const isRelevant =
@@ -162,12 +174,17 @@ Deno.serve(async (req: Request) => {
     }
 
     // Step 3: Combine and clean content
+    console.log("[step 3] Cleaning content...");
     const rawContent = emailBody + attachmentText;
     const fullContent = cleanContentForLlm(rawContent);
+    console.log(`[step 3] Cleaned content: ${fullContent.length} chars`);
 
     // Step 4: Create the received_emails row (with user_id)
-    emailRowId = await createReceivedEmail(emailId, emailSubject, senderEmail, rawContent, userInfo.userId);
-    console.log(`Created received_emails row: ${emailRowId}`);
+    console.log("[step 4] Creating received_emails row...");
+    // Truncate raw body to 50KB to avoid memory/storage issues with large HTML emails
+    const truncatedRaw = rawContent.length > 50000 ? rawContent.slice(0, 50000) + "\n[...truncated]" : rawContent;
+    emailRowId = await createReceivedEmail(emailId, emailSubject, senderEmail, truncatedRaw, userInfo.userId);
+    console.log(`[step 4] Created received_emails row: ${emailRowId}`);
 
     if (fullContent.trim().length === 0) {
       console.warn("No email content found (body and attachments are empty)");
@@ -179,12 +196,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // Step 5: Fetch existing events for travel time context
-    console.log("Fetching existing events for itinerary context...");
+    console.log("[step 5] Fetching existing events for itinerary context...");
     const existingEvents = await fetchUserEventsForContext(userInfo.userId);
-    console.log(`Found ${existingEvents.length} existing events for context`);
+    console.log(`[step 5] Found ${existingEvents.length} existing events for context`);
 
     // Step 6: Parse booking with Claude (with itinerary context)
-    console.log(`Calling Claude API to parse booking (${fullContent.length} chars)...`);
+    console.log(`[step 6] Calling Claude API to parse booking (${fullContent.length} chars)...`);
     const parseResult = await parseBookingEmail(
       emailSubject,
       fullContent,

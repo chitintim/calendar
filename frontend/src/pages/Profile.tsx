@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/lib/supabase";
 import type { UserEmail } from "@/lib/types";
+import { COUNTRIES, getTimezonesForCountry } from "@/lib/locations";
 
 interface ProfileProps {
   userId: string;
@@ -23,6 +24,11 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [changingPassword, setChangingPassword] = useState(false);
+
+  // Derived: timezones for the selected country
+  const availableTimezones = baseCountry
+    ? getTimezonesForCountry(baseCountry)
+    : [];
 
   // Load profile into form
   useEffect(() => {
@@ -46,6 +52,17 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
     }
     loadEmails();
   }, [userId]);
+
+  const handleCountryChange = (code: string) => {
+    setBaseCountry(code);
+    // Auto-select first timezone for the country
+    const tzs = getTimezonesForCountry(code);
+    if (tzs.length === 1 && tzs[0]) {
+      setBaseTimezone(tzs[0].value);
+    } else {
+      setBaseTimezone("");
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,6 +121,11 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
     );
   }
 
+  const selectClasses =
+    "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none bg-white";
+  const inputClasses =
+    "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none";
+
   return (
     <div className="space-y-8 max-w-lg">
       <h1 className="text-2xl font-bold text-gray-900">Profile</h1>
@@ -118,8 +140,57 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+            className={inputClasses}
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Country
+          </label>
+          <select
+            value={baseCountry}
+            onChange={(e) => handleCountryChange(e.target.value)}
+            className={selectClasses}
+          >
+            <option value="">Select country...</option>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Timezone
+          </label>
+          {availableTimezones.length > 1 ? (
+            <select
+              value={baseTimezone}
+              onChange={(e) => setBaseTimezone(e.target.value)}
+              className={selectClasses}
+            >
+              <option value="">Select timezone...</option>
+              {availableTimezones.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={
+                availableTimezones.length === 1 && availableTimezones[0]
+                  ? availableTimezones[0].label
+                  : baseTimezone || "Select a country first"
+              }
+              disabled
+              className={`${inputClasses} bg-gray-50 text-gray-500`}
+            />
+          )}
         </div>
 
         <div>
@@ -131,33 +202,7 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
             value={baseCity}
             onChange={(e) => setBaseCity(e.target.value)}
             placeholder="e.g. Hong Kong"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Timezone
-          </label>
-          <input
-            type="text"
-            value={baseTimezone}
-            onChange={(e) => setBaseTimezone(e.target.value)}
-            placeholder="e.g. Asia/Hong_Kong"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Country
-          </label>
-          <input
-            type="text"
-            value={baseCountry}
-            onChange={(e) => setBaseCountry(e.target.value)}
-            placeholder="e.g. HK"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+            className={inputClasses}
           />
         </div>
 
@@ -172,7 +217,9 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
           {saveMessage && (
             <span
               className={`text-sm ${
-                saveMessage.startsWith("Error") ? "text-red-600" : "text-green-600"
+                saveMessage.startsWith("Error")
+                  ? "text-red-600"
+                  : "text-green-600"
               }`}
             >
               {saveMessage}
@@ -225,7 +272,7 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              className={inputClasses}
               minLength={6}
               required
             />
@@ -238,7 +285,7 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              className={inputClasses}
               minLength={6}
               required
             />
@@ -254,7 +301,9 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
             {passwordMessage && (
               <span
                 className={`text-sm ${
-                  passwordMessage.startsWith("Error") || passwordMessage.includes("do not match") || passwordMessage.includes("at least")
+                  passwordMessage.startsWith("Error") ||
+                  passwordMessage.includes("do not match") ||
+                  passwordMessage.includes("at least")
                     ? "text-red-600"
                     : "text-green-600"
                 }`}

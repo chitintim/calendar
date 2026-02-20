@@ -89,6 +89,11 @@ export async function fetchAttachmentContent(
   // For PDF files, extract readable text
   if (contentType === "application/pdf" || contentType.includes("pdf")) {
     const buffer = await fileResponse.arrayBuffer();
+    // Limit PDF processing to 2MB to avoid memory issues in edge functions
+    if (buffer.byteLength > 2 * 1024 * 1024) {
+      console.warn(`PDF too large (${(buffer.byteLength / 1024 / 1024).toFixed(1)}MB), truncating to 2MB`);
+      return extractTextFromPdf(new Uint8Array(buffer.slice(0, 2 * 1024 * 1024)));
+    }
     return extractTextFromPdf(new Uint8Array(buffer));
   }
 
@@ -111,29 +116,41 @@ export async function fetchAttachmentContent(
 function extractTextFromPdf(pdfBytes: Uint8Array): string {
   const pdfText = new TextDecoder("latin1").decode(pdfBytes);
   const textParts: string[] = [];
+  let totalLength = 0;
+  const MAX_TEXT_LENGTH = 30000; // Cap extraction at 30KB
 
   // Strategy 1: Extract text from BT...ET blocks (PDF text objects)
   const btEtRegex = /BT\s([\s\S]*?)ET/g;
   let match;
   while ((match = btEtRegex.exec(pdfText)) !== null) {
+    if (totalLength >= MAX_TEXT_LENGTH) break;
     const block = match[1];
 
     // Extract text from Tj operator (show text string)
     const tjRegex = /\(([^)]*)\)\s*Tj/g;
     let tjMatch;
     while ((tjMatch = tjRegex.exec(block)) !== null) {
-      textParts.push(unescapePdfString(tjMatch[1]));
+      const text = unescapePdfString(tjMatch[1]);
+      textParts.push(text);
+      totalLength += text.length;
+      if (totalLength >= MAX_TEXT_LENGTH) break;
     }
 
     // Extract text from TJ operator (show text array)
-    const tjArrayRegex = /\[((?:[^[\]]*|\([^)]*\))*)\]\s*TJ/gi;
-    let tjArrayMatch;
-    while ((tjArrayMatch = tjArrayRegex.exec(block)) !== null) {
-      const arrayContent = tjArrayMatch[1];
-      const stringRegex = /\(([^)]*)\)/g;
-      let strMatch;
-      while ((strMatch = stringRegex.exec(arrayContent)) !== null) {
-        textParts.push(unescapePdfString(strMatch[1]));
+    if (totalLength < MAX_TEXT_LENGTH) {
+      const tjArrayRegex = /\[((?:[^[\]]*|\([^)]*\))*)\]\s*TJ/gi;
+      let tjArrayMatch;
+      while ((tjArrayMatch = tjArrayRegex.exec(block)) !== null) {
+        if (totalLength >= MAX_TEXT_LENGTH) break;
+        const arrayContent = tjArrayMatch[1];
+        const stringRegex = /\(([^)]*)\)/g;
+        let strMatch;
+        while ((strMatch = stringRegex.exec(arrayContent)) !== null) {
+          const text = unescapePdfString(strMatch[1]);
+          textParts.push(text);
+          totalLength += text.length;
+          if (totalLength >= MAX_TEXT_LENGTH) break;
+        }
       }
     }
   }
@@ -143,6 +160,7 @@ function extractTextFromPdf(pdfBytes: Uint8Array): string {
     const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
     let streamMatch;
     while ((streamMatch = streamRegex.exec(pdfText)) !== null) {
+      if (totalLength >= MAX_TEXT_LENGTH) break;
       const content = streamMatch[1];
       // Look for readable ASCII text sequences
       const readableText = content.replace(/[^\x20-\x7E\n\r\t]/g, " ");
@@ -151,12 +169,13 @@ function extractTextFromPdf(pdfBytes: Uint8Array): string {
         .trim();
       if (cleaned.length > 20) {
         textParts.push(cleaned);
+        totalLength += cleaned.length;
       }
     }
   }
 
   const result = textParts.join(" ").replace(/\s+/g, " ").trim();
-  return result;
+  return result.length > MAX_TEXT_LENGTH ? result.slice(0, MAX_TEXT_LENGTH) : result;
 }
 
 function unescapePdfString(s: string): string {

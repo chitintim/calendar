@@ -4,6 +4,7 @@ import {
   formatEventTime,
   formatEventDate,
   formatMustLeaveBy,
+  formatArrivalTime,
   getUrgencyStatus,
   getMustLeaveTime,
 } from "@/lib/time";
@@ -52,7 +53,7 @@ export function EventCard({
   const countdownText = useCountdown(mustLeaveTime);
 
   const startTime = formatEventTime(event.start_at, event.start_timezone);
-  const endTime = formatEventTime(event.end_at, event.end_timezone);
+  const arrival = formatArrivalTime(event);
   const startDate = formatEventDate(event.start_at, event.start_timezone);
 
   const icon = getEventIcon(event.event_type);
@@ -90,7 +91,10 @@ export function EventCard({
         <div className="flex-1 min-w-0">
           <p className="font-medium text-gray-900 truncate">{event.title}</p>
           <p className="text-sm text-gray-500">
-            {startTime} - {endTime}
+            {startTime} – {arrival.time}
+            {arrival.dayOffset > 0 && (
+              <span className="text-amber-600 font-medium"> +{arrival.dayOffset}</span>
+            )}
             {event.start_timezone !== event.end_timezone && (
               <span className="text-gray-400"> (local times)</span>
             )}
@@ -163,8 +167,18 @@ export function EventCard({
           </div>
           <div>
             <span className="text-gray-500">Arrive:</span>{" "}
-            <span className="font-medium">{endTime}</span>
-            {event.start_timezone !== event.end_timezone && (
+            <span className="font-medium">
+              {arrival.time}
+              {arrival.dayOffset > 0 && (
+                <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
+                  +{arrival.dayOffset}
+                </span>
+              )}
+            </span>
+            {arrival.arrivalDate && (
+              <span className="text-gray-400 text-xs ml-1">({arrival.arrivalDate})</span>
+            )}
+            {!arrival.arrivalDate && event.start_timezone !== event.end_timezone && (
               <span className="text-gray-400 text-xs ml-1">(local)</span>
             )}
           </div>

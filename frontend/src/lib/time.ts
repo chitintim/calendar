@@ -113,6 +113,60 @@ export function getCountdownText(targetDate: Date): string {
 }
 
 /**
+ * Calculate the number of calendar days between departure and arrival,
+ * accounting for different timezones.
+ *
+ * Returns 0 for same-day, 1 for next-day arrival (+1), 2 for +2, etc.
+ * Uses each time's LOCAL date in its own timezone.
+ */
+export function getArrivalDayOffset(
+  startUtc: string,
+  startTimezone: string,
+  endUtc: string,
+  endTimezone: string
+): number {
+  // Get local dates in each timezone
+  const depLocal = formatInTimeZone(new Date(startUtc), startTimezone, "yyyy-MM-dd");
+  const arrLocal = formatInTimeZone(new Date(endUtc), endTimezone, "yyyy-MM-dd");
+
+  if (depLocal === arrLocal) return 0;
+
+  // Parse dates and calculate difference
+  const depDate = new Date(depLocal + "T00:00:00Z");
+  const arrDate = new Date(arrLocal + "T00:00:00Z");
+  const diffDays = Math.round(
+    (arrDate.getTime() - depDate.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  return diffDays;
+}
+
+/**
+ * Format the arrival time with a +N day indicator if needed.
+ * e.g., "15:45" or "15:45 +1" or "08:30 +2"
+ */
+export function formatArrivalTime(event: CalendarEvent): {
+  time: string;
+  dayOffset: number;
+  arrivalDate: string | null;
+} {
+  const time = formatEventTime(event.end_at, event.end_timezone);
+  const dayOffset = getArrivalDayOffset(
+    event.start_at,
+    event.start_timezone,
+    event.end_at,
+    event.end_timezone
+  );
+
+  const arrivalDate =
+    dayOffset !== 0
+      ? formatEventDate(event.end_at, event.end_timezone, "EEE d MMM")
+      : null;
+
+  return { time, dayOffset, arrivalDate };
+}
+
+/**
  * Check if an event is in the future.
  */
 export function isFutureEvent(event: CalendarEvent): boolean {

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +34,12 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+
+      # SPA support: copy index.html to 404.html so all routes resolve
+      - run: cp dist/index.html dist/404.html
+
+      # Prevent Jekyll processing (files starting with _)
+      - run: touch dist/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3
         with:

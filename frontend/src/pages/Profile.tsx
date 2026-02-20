@@ -70,7 +70,7 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
     setSaveMessage(null);
 
     const { error } = await updateProfile({
-      display_name: displayName || null,
+      display_name: displayName || undefined,
       base_city: baseCity || null,
       base_timezone: baseTimezone || null,
       base_country: baseCountry || null,

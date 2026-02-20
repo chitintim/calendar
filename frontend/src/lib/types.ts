@@ -39,7 +39,7 @@ export interface CalendarEvent {
 
 export interface Profile {
   id: string;
-  display_name: string | null;
+  display_name: string;
   base_city: string | null;
   base_timezone: string | null;
   base_country: string | null;
@@ -91,28 +91,259 @@ export interface ReceivedEmail {
 // Urgency status for events
 export type UrgencyStatus = "green" | "amber" | "red" | "past";
 
-// Supabase generated Database type (minimal for client usage)
+// Supabase Database type — generated from schema, allows proper insert/update/rpc inference
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
 export interface Database {
   public: {
     Tables: {
       events: {
-        Row: CalendarEvent;
+        Row: {
+          address: string | null;
+          arrive_by_minutes: number | null;
+          booking_reference: string | null;
+          created_at: string;
+          email_id: string | null;
+          end_at: string;
+          end_location: string | null;
+          end_timezone: string;
+          event_type: string;
+          gate: string | null;
+          id: string;
+          is_all_day: boolean;
+          leave_by_note: string | null;
+          location: string | null;
+          notes: string | null;
+          passenger_names: string[] | null;
+          provider: string | null;
+          start_at: string;
+          start_timezone: string;
+          terminal: string | null;
+          title: string;
+          travel_from_previous_minutes: number | null;
+          trip_id: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          address?: string | null;
+          arrive_by_minutes?: number | null;
+          booking_reference?: string | null;
+          created_at?: string;
+          email_id?: string | null;
+          end_at: string;
+          end_location?: string | null;
+          end_timezone: string;
+          event_type: string;
+          gate?: string | null;
+          id?: string;
+          is_all_day?: boolean;
+          leave_by_note?: string | null;
+          location?: string | null;
+          notes?: string | null;
+          passenger_names?: string[] | null;
+          provider?: string | null;
+          start_at: string;
+          start_timezone: string;
+          terminal?: string | null;
+          title: string;
+          travel_from_previous_minutes?: number | null;
+          trip_id?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          address?: string | null;
+          arrive_by_minutes?: number | null;
+          booking_reference?: string | null;
+          created_at?: string;
+          email_id?: string | null;
+          end_at?: string;
+          end_location?: string | null;
+          end_timezone?: string;
+          event_type?: string;
+          gate?: string | null;
+          id?: string;
+          is_all_day?: boolean;
+          leave_by_note?: string | null;
+          location?: string | null;
+          notes?: string | null;
+          passenger_names?: string[] | null;
+          provider?: string | null;
+          start_at?: string;
+          start_timezone?: string;
+          terminal?: string | null;
+          title?: string;
+          travel_from_previous_minutes?: number | null;
+          trip_id?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [];
       };
       profiles: {
-        Row: Profile;
+        Row: {
+          base_city: string | null;
+          base_country: string | null;
+          base_timezone: string | null;
+          created_at: string;
+          display_name: string;
+          id: string;
+          preferences: Json | null;
+          updated_at: string;
+        };
+        Insert: {
+          base_city?: string | null;
+          base_country?: string | null;
+          base_timezone?: string | null;
+          created_at?: string;
+          display_name: string;
+          id: string;
+          preferences?: Json | null;
+          updated_at?: string;
+        };
+        Update: {
+          base_city?: string | null;
+          base_country?: string | null;
+          base_timezone?: string | null;
+          created_at?: string;
+          display_name?: string;
+          id?: string;
+          preferences?: Json | null;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       user_emails: {
-        Row: UserEmail;
+        Row: {
+          created_at: string;
+          email: string;
+          id: string;
+          is_primary: boolean;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          email: string;
+          id?: string;
+          is_primary?: boolean;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          email?: string;
+          id?: string;
+          is_primary?: boolean;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       groups: {
-        Row: Group;
+        Row: {
+          created_at: string;
+          created_by: string;
+          id: string;
+          invite_code: string | null;
+          invite_expires_at: string | null;
+          max_members: number;
+          name: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          invite_code?: string | null;
+          invite_expires_at?: string | null;
+          max_members?: number;
+          name: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          invite_code?: string | null;
+          invite_expires_at?: string | null;
+          max_members?: number;
+          name?: string;
+        };
+        Relationships: [];
       };
       group_members: {
-        Row: GroupMember;
+        Row: {
+          group_id: string;
+          id: string;
+          joined_at: string;
+          role: string;
+          user_id: string;
+        };
+        Insert: {
+          group_id: string;
+          id?: string;
+          joined_at?: string;
+          role?: string;
+          user_id: string;
+        };
+        Update: {
+          group_id?: string;
+          id?: string;
+          joined_at?: string;
+          role?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       received_emails: {
-        Row: ReceivedEmail;
+        Row: {
+          created_at: string;
+          error_message: string | null;
+          event_count: number;
+          ics_sent: boolean;
+          id: string;
+          raw_body: string | null;
+          resend_email_id: string | null;
+          sender: string;
+          status: string;
+          subject: string;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          error_message?: string | null;
+          event_count?: number;
+          ics_sent?: boolean;
+          id?: string;
+          raw_body?: string | null;
+          resend_email_id?: string | null;
+          sender: string;
+          status?: string;
+          subject: string;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          error_message?: string | null;
+          event_count?: number;
+          ics_sent?: boolean;
+          id?: string;
+          raw_body?: string | null;
+          resend_email_id?: string | null;
+          sender?: string;
+          status?: string;
+          subject?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: {
+      get_my_group_ids: { Args: Record<string, never>; Returns: string[] };
+      join_group_by_invite: { Args: { p_invite_code: string }; Returns: string };
+    };
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

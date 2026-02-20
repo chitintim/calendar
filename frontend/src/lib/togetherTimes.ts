@@ -124,13 +124,13 @@ function extractCity(location: string | null): string | null {
   // Try to find a 3-letter airport code in parentheses like "(HKG)" or "(LHR)"
   const codeMatch = location.match(/\(([A-Z]{3})\)/);
   if (codeMatch && codeMatch[1] && AIRPORT_CITY[codeMatch[1]]) {
-    return AIRPORT_CITY[codeMatch[1]];
+    return AIRPORT_CITY[codeMatch[1]]!;
   }
 
   // Try bare 3-letter code at end of string
   const bareMatch = location.match(/\b([A-Z]{3})$/);
   if (bareMatch && bareMatch[1] && AIRPORT_CITY[bareMatch[1]]) {
-    return AIRPORT_CITY[bareMatch[1]];
+    return AIRPORT_CITY[bareMatch[1]]!;
   }
 
   // Try to extract city from "City Name" or "Hotel, City" patterns
@@ -169,23 +169,95 @@ function getDepartureCity(event: CalendarEvent): string | null {
 // Location segments
 // ============================================
 
+// How far back/forward to extend home base segments
+const LOOKBACK_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+const LOOKFORWARD_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+
 /**
  * Build a timeline of where a user is located based on their events.
  * Each segment represents a period where the user is in a specific city.
+ *
+ * Key improvement: if the user has a homeCity, we create a home-base segment
+ * before their first departure and after their final arrival (when they return home).
+ * If the user has no events at all, we create one long home segment.
  */
 export function buildLocationSegments(
   events: CalendarEvent[],
   homeCity: string | null
 ): LocationSegment[] {
-  if (events.length === 0) return [];
+  const now = new Date();
+
+  // If no events but we know their home city, they're at home
+  if (events.length === 0) {
+    if (!homeCity) return [];
+    return [
+      {
+        city: homeCity,
+        from: new Date(now.getTime() - LOOKBACK_MS),
+        to: new Date(now.getTime() + LOOKFORWARD_MS),
+      },
+    ];
+  }
 
   const sorted = [...events].sort(
     (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
   );
 
   const segments: LocationSegment[] = [];
+
+  // ---- Pre-first-event home segment ----
+  // If user has a home city, they're there from the lookback start until
+  // their first transit departure (or first event).
+  const firstEvent = sorted[0]!;
+  const firstEventStart = new Date(firstEvent.start_at);
+  const isFirstTransit = ["flight", "train", "ferry", "bus", "transfer"].includes(
+    firstEvent.event_type
+  );
+
+  if (homeCity) {
+    const homeSegmentStart = new Date(
+      Math.min(now.getTime() - LOOKBACK_MS, firstEventStart.getTime() - LOOKBACK_MS)
+    );
+    if (isFirstTransit) {
+      // Home until first departure
+      segments.push({
+        city: homeCity,
+        from: homeSegmentStart,
+        to: firstEventStart,
+      });
+    } else {
+      // First event is non-transit (hotel, activity, etc.)
+      // If it's in a different city, home until that event. Otherwise, home until that event start.
+      const eventCity = extractCity(firstEvent.location);
+      if (eventCity && normalizeCity(eventCity) !== normalizeCity(homeCity)) {
+        segments.push({
+          city: homeCity,
+          from: homeSegmentStart,
+          to: firstEventStart,
+        });
+      }
+      // If same city, the home segment merges naturally below
+    }
+  }
+
+  // ---- Process events ----
   let currentCity = homeCity;
   let cityStartTime: Date | null = null;
+
+  // If we created a pre-home segment, start tracking from that point
+  if (homeCity && segments.length > 0) {
+    // We already have the home segment before first event.
+    // Now set current state for the loop.
+    if (isFirstTransit) {
+      currentCity = null; // in transit
+      cityStartTime = null;
+    } else {
+      currentCity = homeCity;
+      cityStartTime = new Date(
+        Math.min(now.getTime() - LOOKBACK_MS, firstEventStart.getTime() - LOOKBACK_MS)
+      );
+    }
+  }
 
   for (let i = 0; i < sorted.length; i++) {
     const event = sorted[i]!;
@@ -230,12 +302,16 @@ export function buildLocationSegments(
     }
   }
 
-  // Close final segment — extend to a reasonable future
+  // ---- Post-last-event segment ----
   if (currentCity && cityStartTime) {
     const lastEvent = sorted[sorted.length - 1]!;
     const lastEnd = new Date(lastEvent.end_at);
-    // Extend segment to 3 days after last event, or until they presumably go home
-    const segmentEnd = new Date(lastEnd.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    // If user ended up back at home, extend generously into the future
+    const isAtHome = homeCity && normalizeCity(currentCity) === normalizeCity(homeCity);
+    const extensionMs = isAtHome ? LOOKFORWARD_MS : 3 * 24 * 60 * 60 * 1000; // 60 days if home, 3 days if away
+    const segmentEnd = new Date(lastEnd.getTime() + extensionMs);
+
     segments.push({
       city: currentCity,
       from: cityStartTime,
@@ -243,7 +319,38 @@ export function buildLocationSegments(
     });
   }
 
-  return segments;
+  // Deduplicate: merge overlapping segments in the same city
+  return mergeLocationSegments(segments);
+}
+
+/**
+ * Merge overlapping or adjacent location segments in the same city.
+ */
+function mergeLocationSegments(segments: LocationSegment[]): LocationSegment[] {
+  if (segments.length <= 1) return segments;
+
+  const sorted = [...segments].sort(
+    (a, b) => a.from.getTime() - b.from.getTime()
+  );
+
+  const merged: LocationSegment[] = [{ ...sorted[0]! }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i]!;
+    const last = merged[merged.length - 1]!;
+
+    if (
+      normalizeCity(current.city) === normalizeCity(last.city) &&
+      current.from.getTime() <= last.to.getTime()
+    ) {
+      // Overlapping or adjacent same-city segments → merge
+      last.to = new Date(Math.max(last.to.getTime(), current.to.getTime()));
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
 }
 
 // ============================================

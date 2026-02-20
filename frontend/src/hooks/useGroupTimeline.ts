@@ -6,7 +6,6 @@ import {
   findTogetherPeriods,
   computeGaps,
   type TogetherPeriod,
-  type GapPeriod,
 } from "@/lib/togetherTimes";
 
 interface UseGroupTimelineOptions {
@@ -55,7 +54,7 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
     setAllEvents((events ?? []) as CalendarEvent[]);
 
     // Get unique user IDs from events and fetch their profiles
-    const userIds = [...new Set((events ?? []).map((e) => e.user_id))];
+    const userIds = [...new Set((events ?? []).map((e) => e.user_id).filter((id): id is string => id !== null))];
     if (userIds.length > 0) {
       const { data: profileData } = await supabase
         .from("profiles")

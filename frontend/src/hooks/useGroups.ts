@@ -52,10 +52,10 @@ export function useGroups(userId: string | undefined) {
       return;
     }
 
-    // Fetch all members of these groups with profiles
+    // Fetch all members of these groups
     const { data: allMembers, error: membersErr } = await supabase
       .from("group_members")
-      .select("*, profiles(*)")
+      .select("*")
       .in("group_id", groupIds);
 
     if (membersErr) {
@@ -64,10 +64,29 @@ export function useGroups(userId: string | undefined) {
       return;
     }
 
+    // Fetch profiles for all members
+    const memberUserIds = [...new Set((allMembers ?? []).map((m) => m.user_id))];
+    const profileMap: Record<string, Profile> = {};
+    if (memberUserIds.length > 0) {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", memberUserIds);
+      for (const p of profileData ?? []) {
+        profileMap[p.id] = p as Profile;
+      }
+    }
+
     // Combine
     const result: GroupWithMembers[] = (groupData ?? []).map((g) => ({
       ...g,
-      members: (allMembers ?? []).filter((m) => m.group_id === g.id) as (GroupMember & { profiles: Profile })[],
+      members: (allMembers ?? [])
+        .filter((m) => m.group_id === g.id)
+        .map((m) => ({
+          ...m,
+          role: m.role as "owner" | "member",
+          profiles: profileMap[m.user_id]!,
+        })) as (GroupMember & { profiles: Profile })[],
     }));
 
     setGroups(result);

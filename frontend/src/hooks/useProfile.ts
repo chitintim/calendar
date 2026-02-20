@@ -38,7 +38,13 @@ export function useProfile(userId: string | undefined) {
 
       const { error: updateError } = await supabase
         .from("profiles")
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({
+          display_name: updates.display_name,
+          base_city: updates.base_city,
+          base_timezone: updates.base_timezone,
+          base_country: updates.base_country,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", userId);
 
       if (!updateError) {

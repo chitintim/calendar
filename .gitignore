@@ -1,8 +1,25 @@
-# Claude Code settings
+# Claude Code
 .claude/
+
+# Supabase
+supabase/.temp/
+supabase/.env
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Node
 node_modules/
+
+# Environment / Secrets
+.env
+.env.*
+*.local
+!.gitignore
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

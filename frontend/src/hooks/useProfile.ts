@@ -60,8 +60,7 @@ export function useProfile(userId: string | undefined) {
     async (file: File) => {
       if (!userId) return { error: new Error("No user") };
 
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-      const path = `${userId}/avatar.${ext}`;
+      const path = `${userId}/avatar.jpg`;
 
       // Upload (upsert) the file to Supabase Storage
       const { error: uploadError } = await supabase.storage

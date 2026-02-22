@@ -6,6 +6,22 @@ import type { UserEmail } from "@/lib/types";
 import { COUNTRIES, getTimezonesForCountry } from "@/lib/locations";
 import { Avatar } from "@/components/Avatar";
 
+/** Center-crop to square and downscale, returns a JPEG Blob wrapped as File. */
+async function cropAndResize(file: File, size: number): Promise<File> {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = (bitmap.width - side) / 2;
+  const sy = (bitmap.height - side) / 2;
+
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+  bitmap.close();
+
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+  return new File([blob], "avatar.jpg", { type: "image/jpeg" });
+}
+
 interface ProfileProps {
   userId: string;
   onUpdatePassword: (password: string) => Promise<{ error: Error | null }>;
@@ -81,33 +97,37 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    if (!["image/jpeg", "image/png", "image/webp", "image/heic"].includes(file.type)) {
       setAvatarMessage("Please select a JPEG, PNG, or WebP image");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarMessage("Image must be under 2MB");
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarMessage("Image must be under 10MB");
       return;
     }
 
-    // Show preview immediately
-    setAvatarPreview(URL.createObjectURL(file));
     setUploadingAvatar(true);
     setAvatarMessage(null);
 
-    const { error } = await uploadAvatar(file);
-    setUploadingAvatar(false);
+    try {
+      const resized = await cropAndResize(file, 256);
+      setAvatarPreview(URL.createObjectURL(resized));
 
-    if (error) {
-      setAvatarMessage(`Upload failed: ${error.message}`);
+      const { error } = await uploadAvatar(resized);
+      if (error) {
+        setAvatarMessage(`Upload failed: ${error.message}`);
+        setAvatarPreview(null);
+      } else {
+        setAvatarMessage("Photo updated!");
+        setAvatarPreview(null);
+        setTimeout(() => setAvatarMessage(null), 3000);
+      }
+    } catch {
+      setAvatarMessage("Failed to process image");
       setAvatarPreview(null);
-    } else {
-      setAvatarMessage("Photo updated!");
-      setAvatarPreview(null);
-      setTimeout(() => setAvatarMessage(null), 3000);
     }
 
-    // Reset file input
+    setUploadingAvatar(false);
     e.target.value = "";
   };
 

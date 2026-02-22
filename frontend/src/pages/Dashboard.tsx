@@ -204,7 +204,7 @@ export function Dashboard({ userId }: DashboardProps) {
               >
                 {urgency === "red" ? "Go now!" : "Get ready"}
               </p>
-              <StatusBadge status={urgency} size="md" />
+              <StatusBadge status={urgency!} size="md" />
             </div>
             <p
               className={`text-2xl font-bold ${
@@ -345,8 +345,8 @@ export function Dashboard({ userId }: DashboardProps) {
             />
           </div>
 
-          {/* Leave-by (only if NOT shown as urgency hero) */}
-          {!isUrgentHero && mustLeaveTime && urgency !== "past" && (
+          {/* Leave-by (only if NOT shown as urgency hero, and within actionable range) */}
+          {!isUrgentHero && mustLeaveTime && urgency && urgency !== "past" && (
             <div className="px-4 py-2.5 border-t text-sm bg-gray-50 border-gray-100 text-gray-600">
               <span className="font-medium">
                 Leave in {leaveCountdownText}

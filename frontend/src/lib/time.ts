@@ -55,25 +55,32 @@ export function getMustLeaveTime(event: CalendarEvent): Date | null {
 
 /**
  * Get urgency status relative to "must leave" time.
- * Green: >15 min until must-leave
- * Amber: 5-15 min until must-leave
- * Red: <5 min until must-leave
- * Past: must-leave time has passed
+ * Only returns a status when it's actionable (within ~3h).
+ *
+ * null:  Event is far in the future — no badge needed
+ * green: Plenty of time (15 min – 3h before must-leave)
+ * amber: Getting close (5–15 min before must-leave)
+ * red:   Must go now (<5 min before must-leave)
+ * past:  Must-leave time has passed (but event hasn't ended)
  */
 export function getUrgencyStatus(event: CalendarEvent): UrgencyStatus {
+  const SHOW_THRESHOLD_MINUTES = 180; // 3 hours
+
   const mustLeave = getMustLeaveTime(event);
-  if (!mustLeave) {
-    // No travel time info — use event start time
-    const start = new Date(event.start_at);
-    if (isPast(start)) return "past";
-    return "green";
-  }
 
-  if (isPast(mustLeave)) return "past";
+  // Reference time: use must-leave if available, otherwise event start
+  const referenceTime = mustLeave ?? new Date(event.start_at);
 
-  const minutesUntilLeave = differenceInMinutes(mustLeave, new Date());
-  if (minutesUntilLeave < 5) return "red";
-  if (minutesUntilLeave <= 15) return "amber";
+  if (isPast(referenceTime)) return "past";
+
+  const minutesUntil = differenceInMinutes(referenceTime, new Date());
+
+  // If more than 3h away, don't show any urgency
+  if (minutesUntil > SHOW_THRESHOLD_MINUTES) return null;
+
+  // Within 3h — show urgency relative to must-leave (or start if no leave time)
+  if (minutesUntil < 5) return "red";
+  if (minutesUntil <= 15) return "amber";
   return "green";
 }
 

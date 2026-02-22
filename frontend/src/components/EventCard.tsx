@@ -62,7 +62,7 @@ export function EventCard({
     event.address ||
     event.notes ||
     event.passenger_names?.length ||
-    (mustLeaveFormatted && urgency !== "past")
+    (mustLeaveFormatted && urgency && urgency !== "past")
   );
 
   const handleClick = useCallback(() => {
@@ -130,7 +130,7 @@ export function EventCard({
             colorScheme={ownerColor}
           />
         )}
-        <StatusBadge status={urgency} />
+        {urgency && <StatusBadge status={urgency} />}
         {hasDetails && !selectable && (
           <svg
             className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 ${
@@ -250,8 +250,8 @@ export function EventCard({
               </p>
             )}
 
-            {/* Leave-by time */}
-            {mustLeaveFormatted && urgency !== "past" && (
+            {/* Leave-by time — only when within actionable range */}
+            {mustLeaveFormatted && urgency && urgency !== "past" && (
               <div className="p-2 rounded-lg bg-gray-50 border border-gray-100">
                 <p className="text-sm font-medium text-gray-700">
                   Leave by {mustLeaveFormatted}

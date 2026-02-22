@@ -89,8 +89,8 @@ export interface ReceivedEmail {
   created_at: string;
 }
 
-// Urgency status for events
-export type UrgencyStatus = "green" | "amber" | "red" | "past";
+// Urgency status for events (null = too far away to be relevant)
+export type UrgencyStatus = "green" | "amber" | "red" | "past" | null;
 
 // Supabase Database type — generated from schema, allows proper insert/update/rpc inference
 export type Json =

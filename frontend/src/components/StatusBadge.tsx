@@ -1,12 +1,15 @@
 import type { UrgencyStatus } from "@/lib/types";
 
+// StatusBadge only renders for non-null statuses
+type ActiveStatus = Exclude<UrgencyStatus, null>;
+
 interface StatusBadgeProps {
-  status: UrgencyStatus;
+  status: ActiveStatus;
   size?: "sm" | "md";
 }
 
 const statusConfig: Record<
-  UrgencyStatus,
+  ActiveStatus,
   { bg: string; ring: string; dot: string; label: string }
 > = {
   green: {

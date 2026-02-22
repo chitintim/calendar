@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useOutletContext } from "react-router-dom";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/lib/supabase";
 import type { UserEmail } from "@/lib/types";
@@ -10,7 +11,12 @@ interface ProfileProps {
   onUpdatePassword: (password: string) => Promise<{ error: Error | null }>;
 }
 
+interface LayoutContext {
+  onSignOut: () => void;
+}
+
 export function Profile({ userId, onUpdatePassword }: ProfileProps) {
+  const { onSignOut } = useOutletContext<LayoutContext>();
   const { profile, loading, updateProfile, uploadAvatar, removeAvatar } = useProfile(userId);
   const [emails, setEmails] = useState<UserEmail[]>([]);
 
@@ -434,6 +440,16 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
             )}
           </div>
         </form>
+      </div>
+
+      {/* Sign out */}
+      <div className="pt-4 border-t border-gray-200">
+        <button
+          onClick={onSignOut}
+          className="w-full py-2.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+        >
+          Sign out
+        </button>
       </div>
     </div>
   );

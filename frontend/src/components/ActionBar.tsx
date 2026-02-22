@@ -18,8 +18,8 @@ export function ActionBar({
   const isManage = mode === "manage";
 
   return (
-    <div className="fixed bottom-0 inset-x-0 z-50 bg-white border-t border-gray-200 shadow-lg">
-      <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div className="fixed bottom-14 md:bottom-0 inset-x-0 z-50 bg-white border-t border-gray-200 shadow-lg pb-[env(safe-area-inset-bottom)]">
+      <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-gray-700">
             {selectedCount} selected

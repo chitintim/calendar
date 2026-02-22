@@ -7,7 +7,6 @@ import { EventCard } from "@/components/EventCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar } from "@/components/Avatar";
 import {
-  formatEventDateTime,
   getUrgencyStatus,
   getMustLeaveTime,
 } from "@/lib/time";
@@ -21,7 +20,6 @@ export function Dashboard({ userId }: DashboardProps) {
   const { events: nextEvents, loading } = useNextEvent(userId);
   const nextEvent = nextEvents[0] ?? null;
 
-  // Fetch group timeline data for together periods
   const { togetherPeriods, partnerEvents, profiles } = useGroupTimeline({
     userId,
   });
@@ -38,12 +36,17 @@ export function Dashboard({ userId }: DashboardProps) {
       : null
   );
 
-  // Is currently together?
+  // Currently together?
   const isCurrentlyTogether = useMemo(() => {
     if (!nextTogether) return false;
     const now = new Date();
     return nextTogether.startAt <= now && nextTogether.endAt > now;
   }, [nextTogether]);
+
+  // Time remaining together
+  const togetherRemainingText = useCountdown(
+    isCurrentlyTogether ? nextTogether!.endAt : null
+  );
 
   // Partner's next event
   const partnerNextEvent = useMemo(() => {
@@ -58,6 +61,7 @@ export function Dashboard({ userId }: DashboardProps) {
     return profiles[partnerNextEvent.user_id] ?? null;
   }, [partnerNextEvent, profiles]);
 
+  // Next event details
   const mustLeaveTime = nextEvent ? getMustLeaveTime(nextEvent) : null;
   const urgency = nextEvent ? getUrgencyStatus(nextEvent) : null;
   const countdownText = useCountdown(
@@ -74,10 +78,10 @@ export function Dashboard({ userId }: DashboardProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Welcome */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1 className="text-xl font-bold text-gray-900">
           {profile?.display_name
             ? `Hey, ${profile.display_name}`
             : "Dashboard"}
@@ -89,9 +93,9 @@ export function Dashboard({ userId }: DashboardProps) {
         )}
       </div>
 
-      {/* Together countdown / status */}
+      {/* Together countdown / status — THE hero */}
       {nextTogether && (
-        <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-2xl border border-rose-200 shadow-sm p-5">
+        <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-2xl border border-rose-200 shadow-sm p-4">
           {isCurrentlyTogether ? (
             <>
               <div className="flex items-center gap-2 mb-1">
@@ -100,7 +104,12 @@ export function Dashboard({ userId }: DashboardProps) {
                   Together in {nextTogether.city}!
                 </h2>
               </div>
-              <p className="text-rose-600 text-sm">
+              {togetherRemainingText && (
+                <p className="text-xl font-bold text-rose-600">
+                  {togetherRemainingText} left
+                </p>
+              )}
+              <p className="text-rose-500 text-sm mt-1">
                 {nextTogether.users.join(" & ")}
               </p>
             </>
@@ -125,56 +134,52 @@ export function Dashboard({ userId }: DashboardProps) {
         </div>
       )}
 
-      {/* Next event hero */}
+      {/* Next event — merged compact card with countdown */}
       {nextEvent ? (
-        <div className="space-y-4">
-          {/* Countdown hero */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          {/* Top section: countdown + urgency */}
+          <div className="px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
                 Next Up
-              </h2>
-              {urgency && <StatusBadge status={urgency} size="md" />}
+              </p>
+              <p className="text-xl font-bold text-gray-900">
+                {countdownText}
+              </p>
             </div>
-
-            <p className="text-3xl font-bold text-gray-900 mb-1">
-              {countdownText}
-            </p>
-            <p className="text-gray-600">
-              {formatEventDateTime(
-                nextEvent.start_at,
-                nextEvent.start_timezone
-              )}
-            </p>
-
-            {/* Leave-by countdown */}
-            {mustLeaveTime && urgency !== "past" && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-sm text-gray-500">
-                  Leave in{" "}
-                  <span
-                    className={`font-semibold ${
-                      urgency === "red"
-                        ? "text-red-600"
-                        : urgency === "amber"
-                        ? "text-amber-600"
-                        : "text-green-600"
-                    }`}
-                  >
-                    {leaveCountdownText}
-                  </span>
-                </p>
-                {nextEvent.leave_by_note && (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {nextEvent.leave_by_note}
-                  </p>
-                )}
-              </div>
-            )}
+            {urgency && <StatusBadge status={urgency} size="md" />}
           </div>
 
-          {/* Full event card */}
-          <EventCard event={nextEvent} />
+          {/* Event as collapsible card (inline, no extra border) */}
+          <div className="border-t border-gray-100">
+            <EventCard
+              event={nextEvent}
+              defaultExpanded={false}
+              showDate
+            />
+          </div>
+
+          {/* Leave-by (prominent when urgent) */}
+          {mustLeaveTime && urgency !== "past" && (
+            <div
+              className={`px-4 py-2.5 border-t text-sm ${
+                urgency === "red"
+                  ? "bg-red-50 border-red-100 text-red-700"
+                  : urgency === "amber"
+                  ? "bg-amber-50 border-amber-100 text-amber-700"
+                  : "bg-gray-50 border-gray-100 text-gray-600"
+              }`}
+            >
+              <span className="font-medium">
+                Leave in {leaveCountdownText}
+              </span>
+              {nextEvent.leave_by_note && (
+                <span className="text-xs ml-2 opacity-75">
+                  {nextEvent.leave_by_note}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center">
@@ -190,19 +195,19 @@ export function Dashboard({ userId }: DashboardProps) {
 
       {/* Partner's next event */}
       {partnerNextEvent && partnerProfile && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
             <Avatar
               avatarUrl={partnerProfile.avatar_url}
               displayName={partnerProfile.display_name ?? "Partner"}
               size="sm"
               colorScheme="rose"
             />
-            <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
+            <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
               {partnerProfile.display_name ?? "Partner"}&apos;s Next
-            </h2>
+            </span>
           </div>
-          <EventCard event={partnerNextEvent} compact />
+          <EventCard event={partnerNextEvent} />
         </div>
       )}
     </div>

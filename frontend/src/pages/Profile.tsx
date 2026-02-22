@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/lib/supabase";
 import type { UserEmail } from "@/lib/types";
 import { COUNTRIES, getTimezonesForCountry } from "@/lib/locations";
+import { Avatar } from "@/components/Avatar";
 
 interface ProfileProps {
   userId: string;
@@ -10,7 +11,7 @@ interface ProfileProps {
 }
 
 export function Profile({ userId, onUpdatePassword }: ProfileProps) {
-  const { profile, loading, updateProfile } = useProfile(userId);
+  const { profile, loading, updateProfile, uploadAvatar, removeAvatar } = useProfile(userId);
   const [emails, setEmails] = useState<UserEmail[]>([]);
 
   const [displayName, setDisplayName] = useState("");
@@ -19,6 +20,12 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
   const [baseCountry, setBaseCountry] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // Avatar upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -61,6 +68,53 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
       setBaseTimezone(tzs[0].value);
     } else {
       setBaseTimezone("");
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setAvatarMessage("Please select a JPEG, PNG, or WebP image");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarMessage("Image must be under 2MB");
+      return;
+    }
+
+    // Show preview immediately
+    setAvatarPreview(URL.createObjectURL(file));
+    setUploadingAvatar(true);
+    setAvatarMessage(null);
+
+    const { error } = await uploadAvatar(file);
+    setUploadingAvatar(false);
+
+    if (error) {
+      setAvatarMessage(`Upload failed: ${error.message}`);
+      setAvatarPreview(null);
+    } else {
+      setAvatarMessage("Photo updated!");
+      setAvatarPreview(null);
+      setTimeout(() => setAvatarMessage(null), 3000);
+    }
+
+    // Reset file input
+    e.target.value = "";
+  };
+
+  const handleRemoveAvatar = async () => {
+    setUploadingAvatar(true);
+    setAvatarMessage(null);
+    const { error } = await removeAvatar();
+    setUploadingAvatar(false);
+    if (error) {
+      setAvatarMessage(`Remove failed: ${error.message}`);
+    } else {
+      setAvatarMessage("Photo removed");
+      setTimeout(() => setAvatarMessage(null), 3000);
     }
   };
 
@@ -132,6 +186,73 @@ export function Profile({ userId, onUpdatePassword }: ProfileProps) {
 
       {/* Profile details */}
       <form onSubmit={handleSaveProfile} className="space-y-4">
+        {/* Avatar upload */}
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            className="relative group flex-shrink-0"
+          >
+            {avatarPreview ? (
+              <img
+                src={avatarPreview}
+                alt="Preview"
+                className="w-16 h-16 rounded-full object-cover"
+              />
+            ) : (
+              <Avatar
+                avatarUrl={profile?.avatar_url}
+                displayName={displayName || "?"}
+                size="lg"
+              />
+            )}
+            <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <span className="text-white text-xs font-medium">
+                {uploadingAvatar ? "..." : "Change"}
+              </span>
+            </div>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="text-sm text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
+            >
+              {uploadingAvatar ? "Uploading..." : "Change photo"}
+            </button>
+            {profile?.avatar_url && (
+              <button
+                type="button"
+                onClick={handleRemoveAvatar}
+                disabled={uploadingAvatar}
+                className="block text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+              >
+                Remove photo
+              </button>
+            )}
+            {avatarMessage && (
+              <p
+                className={`text-xs ${
+                  avatarMessage.includes("failed") || avatarMessage.includes("Please") || avatarMessage.includes("must")
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
+                {avatarMessage}
+              </p>
+            )}
+          </div>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Display name

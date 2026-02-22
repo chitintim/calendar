@@ -104,6 +104,64 @@ export async function lookupUserBySenderEmail(
 }
 
 // ==========================================
+// Group member lookup (for passenger name matching)
+// ==========================================
+
+export interface GroupMemberInfo {
+  userId: string;
+  displayName: string;
+}
+
+/**
+ * Look up all group members associated with a user.
+ * Used to match passenger names to the correct user_id.
+ */
+export async function lookupGroupMembers(
+  userId: string
+): Promise<GroupMemberInfo[]> {
+  const supabase = getSupabaseClient();
+
+  // Find groups this user belongs to
+  const { data: myMemberships, error: memError } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", userId);
+
+  if (memError || !myMemberships || myMemberships.length === 0) {
+    return [];
+  }
+
+  const groupIds = myMemberships.map((m) => m.group_id);
+
+  // Get all members of those groups
+  const { data: allMembers, error: allError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .in("group_id", groupIds);
+
+  if (allError || !allMembers) {
+    return [];
+  }
+
+  const uniqueUserIds = [...new Set(allMembers.map((m) => m.user_id))];
+
+  // Fetch profiles for all members
+  const { data: profiles, error: profError } = await supabase
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", uniqueUserIds);
+
+  if (profError || !profiles) {
+    return [];
+  }
+
+  return profiles.map((p) => ({
+    userId: p.id,
+    displayName: p.display_name,
+  }));
+}
+
+// ==========================================
 // Existing events (for travel time context)
 // ==========================================
 
@@ -236,11 +294,11 @@ export interface SavedEvent {
 
 /**
  * Save parsed events linked to a received_emails row.
+ * Each event carries its own userId for correct user assignment.
  */
 export async function saveEvents(
   emailRowId: string,
-  events: ParsedEvent[],
-  userId: string
+  events: Array<ParsedEvent & { userId: string }>
 ): Promise<SavedEvent[]> {
   const supabase = getSupabaseClient();
   const saved: SavedEvent[] = [];
@@ -250,7 +308,7 @@ export async function saveEvents(
       .from("events")
       .insert({
         email_id: emailRowId,
-        user_id: userId,
+        user_id: event.userId,
         event_type: event.type,
         title: event.title,
         start_at: localToUtc(event.startDateTime, event.startTimezone),

@@ -5,6 +5,7 @@ import { useCountdown } from "@/hooks/useCountdown";
 import { useGroupTimeline } from "@/hooks/useGroupTimeline";
 import { EventCard } from "@/components/EventCard";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Avatar } from "@/components/Avatar";
 import {
   formatEventDateTime,
   getUrgencyStatus,
@@ -190,9 +191,17 @@ export function Dashboard({ userId }: DashboardProps) {
       {/* Partner's next event */}
       {partnerNextEvent && partnerProfile && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-            {partnerProfile.display_name ?? "Partner"}&apos;s Next
-          </h2>
+          <div className="flex items-center gap-2 mb-3">
+            <Avatar
+              avatarUrl={partnerProfile.avatar_url}
+              displayName={partnerProfile.display_name ?? "Partner"}
+              size="sm"
+              colorScheme="rose"
+            />
+            <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
+              {partnerProfile.display_name ?? "Partner"}&apos;s Next
+            </h2>
+          </div>
           <EventCard event={partnerNextEvent} compact />
         </div>
       )}

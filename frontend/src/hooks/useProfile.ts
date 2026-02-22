@@ -56,5 +56,69 @@ export function useProfile(userId: string | undefined) {
     [userId, fetchProfile]
   );
 
-  return { profile, loading, error, updateProfile, refetch: fetchProfile };
+  const uploadAvatar = useCallback(
+    async (file: File) => {
+      if (!userId) return { error: new Error("No user") };
+
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      const path = `${userId}/avatar.${ext}`;
+
+      // Upload (upsert) the file to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, {
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) return { error: uploadError };
+
+      // Save the path to the profile
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          avatar_url: path,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (!updateError) {
+        await fetchProfile();
+      }
+
+      return { error: updateError };
+    },
+    [userId, fetchProfile]
+  );
+
+  const removeAvatar = useCallback(
+    async () => {
+      if (!userId || !profile?.avatar_url) return { error: new Error("No avatar") };
+
+      // Delete from storage
+      const { error: deleteError } = await supabase.storage
+        .from("avatars")
+        .remove([profile.avatar_url]);
+
+      if (deleteError) return { error: deleteError };
+
+      // Clear from profile
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          avatar_url: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (!updateError) {
+        await fetchProfile();
+      }
+
+      return { error: updateError };
+    },
+    [userId, profile, fetchProfile]
+  );
+
+  return { profile, loading, error, updateProfile, uploadAvatar, removeAvatar, refetch: fetchProfile };
 }

@@ -40,6 +40,7 @@ export interface CalendarEvent {
 export interface Profile {
   id: string;
   display_name: string;
+  avatar_url: string | null;
   base_city: string | null;
   base_timezone: string | null;
   base_country: string | null;
@@ -186,6 +187,7 @@ export interface Database {
       };
       profiles: {
         Row: {
+          avatar_url: string | null;
           base_city: string | null;
           base_country: string | null;
           base_timezone: string | null;
@@ -196,6 +198,7 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          avatar_url?: string | null;
           base_city?: string | null;
           base_country?: string | null;
           base_timezone?: string | null;
@@ -206,6 +209,7 @@ export interface Database {
           updated_at?: string;
         };
         Update: {
+          avatar_url?: string | null;
           base_city?: string | null;
           base_country?: string | null;
           base_timezone?: string | null;

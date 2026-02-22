@@ -10,6 +10,7 @@ import {
 } from "@/lib/time";
 import { useCountdown } from "@/hooks/useCountdown";
 import { StatusBadge } from "./StatusBadge";
+import { Avatar } from "./Avatar";
 
 interface EventCardProps {
   event: CalendarEvent;
@@ -19,22 +20,12 @@ interface EventCardProps {
   ownerName?: string;
   ownerInitial?: string;
   ownerColor?: "blue" | "rose";
+  ownerAvatarUrl?: string | null;
   // Selection mode
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
 }
-
-const OWNER_COLORS = {
-  blue: {
-    bg: "bg-blue-100",
-    text: "text-blue-700",
-  },
-  rose: {
-    bg: "bg-rose-100",
-    text: "text-rose-700",
-  },
-};
 
 export function EventCard({
   event,
@@ -43,6 +34,7 @@ export function EventCard({
   ownerName,
   ownerInitial,
   ownerColor = "blue",
+  ownerAvatarUrl,
   selectable = false,
   selected = false,
   onToggleSelect,
@@ -58,8 +50,6 @@ export function EventCard({
 
   const icon = getEventIcon(event.event_type);
   const typeName = getEventTypeName(event.event_type);
-
-  const colors = OWNER_COLORS[ownerColor];
 
   const handleClick = () => {
     if (selectable && onToggleSelect) {
@@ -101,12 +91,12 @@ export function EventCard({
           </p>
         </div>
         {ownerInitial && (
-          <span
-            className={`flex-shrink-0 w-6 h-6 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center text-xs font-bold`}
-            title={ownerName}
-          >
-            {ownerInitial}
-          </span>
+          <Avatar
+            avatarUrl={ownerAvatarUrl}
+            displayName={ownerName ?? "?"}
+            size="sm"
+            colorScheme={ownerColor}
+          />
         )}
         <StatusBadge status={urgency} />
       </div>
@@ -141,12 +131,12 @@ export function EventCard({
             {typeName}
           </span>
           {ownerInitial && (
-            <span
-              className={`w-5 h-5 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center text-[10px] font-bold`}
-              title={ownerName}
-            >
-              {ownerInitial}
-            </span>
+            <Avatar
+              avatarUrl={ownerAvatarUrl}
+              displayName={ownerName ?? "?"}
+              size="xs"
+              colorScheme={ownerColor}
+            />
           )}
         </div>
         <StatusBadge status={urgency} />

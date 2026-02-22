@@ -34,7 +34,7 @@ function getOwnerProps(
   event: CalendarEvent,
   userId: string,
   profiles: Record<string, Profile>
-): { ownerName: string; ownerInitial: string; ownerColor: "blue" | "rose" } {
+): { ownerName: string; ownerInitial: string; ownerColor: "blue" | "rose"; ownerAvatarUrl: string | null } {
   const isMe = event.user_id === userId;
   const profile = profiles[event.user_id];
   const name = profile?.display_name ?? (isMe ? "You" : "Partner");
@@ -42,6 +42,7 @@ function getOwnerProps(
     ownerName: name,
     ownerInitial: name[0]?.toUpperCase() ?? "?",
     ownerColor: isMe ? "blue" : "rose",
+    ownerAvatarUrl: profile?.avatar_url ?? null,
   };
 }
 
@@ -401,6 +402,7 @@ export function Timeline({ userId }: TimelineProps) {
                       ownerName={ownerProps?.ownerName}
                       ownerInitial={ownerProps?.ownerInitial}
                       ownerColor={ownerProps?.ownerColor}
+                      ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
                     />
                   </div>
                 );

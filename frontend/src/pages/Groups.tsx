@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useGroups } from "@/hooks/useGroups";
+import { Avatar } from "@/components/Avatar";
 
 interface GroupsProps {
   userId: string;
@@ -132,11 +133,12 @@ export function Groups({ userId }: GroupsProps) {
                   key={member.id}
                   className="flex items-center gap-3"
                 >
-                  <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center">
-                    <span className="text-sm font-semibold text-brand-700">
-                      {(member.profiles?.display_name ?? "?")[0]?.toUpperCase()}
-                    </span>
-                  </div>
+                  <Avatar
+                    avatarUrl={member.profiles?.avatar_url}
+                    displayName={member.profiles?.display_name ?? "?"}
+                    size="md"
+                    colorScheme="brand"
+                  />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">
                       {member.profiles?.display_name ?? "Unknown"}

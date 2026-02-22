@@ -2,12 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { parseBookingEmail } from "./parser.ts";
 import {
   lookupUserBySenderEmail,
+  lookupGroupMembers,
   fetchUserEventsForContext,
   hasProcessedEmail,
   createReceivedEmail,
   updateEmailStatus,
   saveEvents,
 } from "./db.ts";
+import type { GroupMemberInfo } from "./db.ts";
+import type { ParsedEvent } from "./parser.ts";
 import {
   fetchReceivedEmail,
   fetchAttachmentContent,
@@ -221,8 +224,20 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Parsed ${parseResult.events.length} event(s)`);
 
-    // Step 7: Save events linked to the email row (with user_id)
-    const savedEvents = await saveEvents(emailRowId, parseResult.events, userInfo.userId);
+    // Step 6b: Match passenger names to group members
+    console.log("[step 6b] Matching passengers to group members...");
+    const groupMembers = await lookupGroupMembers(userInfo.userId);
+    console.log(`[step 6b] Found ${groupMembers.length} group member(s)`);
+
+    const taggedEvents = tagEventsToUsers(
+      parseResult.events,
+      userInfo.userId,
+      groupMembers
+    );
+    console.log(`[step 6b] Tagged ${taggedEvents.length} event(s) (from ${parseResult.events.length} parsed)`);
+
+    // Step 7: Save events linked to the email row (with per-event user_id)
+    const savedEvents = await saveEvents(emailRowId, taggedEvents);
     await updateEmailStatus(emailRowId, "parsed", savedEvents.length);
     console.log(`Saved ${savedEvents.length} event(s) to database`);
 
@@ -230,8 +245,9 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         ok: true,
         events: parseResult.events.length,
+        tagged: taggedEvents.length,
         saved: savedEvents.length,
-        userId: userInfo.userId,
+        senderId: userInfo.userId,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
@@ -256,6 +272,98 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+/**
+ * Match passenger names to group members and tag each event with the correct user_id.
+ * If a booking has multiple passengers matching different group members,
+ * the event is duplicated for each matched user.
+ * Falls back to the sender's userId if no match is found.
+ */
+function tagEventsToUsers(
+  events: ParsedEvent[],
+  senderUserId: string,
+  groupMembers: GroupMemberInfo[]
+): Array<ParsedEvent & { userId: string }> {
+  const tagged: Array<ParsedEvent & { userId: string }> = [];
+
+  for (const event of events) {
+    const passengers = event.passengerNames ?? [];
+
+    if (passengers.length === 0 || groupMembers.length <= 1) {
+      // No passenger info or no group → assign to sender
+      tagged.push({ ...event, userId: senderUserId });
+      continue;
+    }
+
+    // Try to match each passenger to a group member
+    const matchedUserIds = new Set<string>();
+    for (const passenger of passengers) {
+      const matchedMember = matchPassengerToMember(passenger, groupMembers);
+      if (matchedMember) {
+        matchedUserIds.add(matchedMember.userId);
+      }
+    }
+
+    if (matchedUserIds.size === 0) {
+      // No matches → assign to sender
+      tagged.push({ ...event, userId: senderUserId });
+    } else {
+      // Create an event copy for each matched user
+      for (const uid of matchedUserIds) {
+        tagged.push({ ...event, userId: uid });
+      }
+    }
+  }
+
+  return tagged;
+}
+
+/**
+ * Fuzzy match a passenger name to a group member.
+ * Normalizes both names and checks for substring containment.
+ * e.g. "Wong Raine Miss" matches member "Raine"
+ * e.g. "Mr Chiu Tin Tim Lam" matches member "Tim"
+ */
+function matchPassengerToMember(
+  passengerName: string,
+  members: GroupMemberInfo[]
+): GroupMemberInfo | null {
+  const normalizedPassenger = passengerName.toLowerCase().trim();
+
+  // Try exact display_name match first (case-insensitive)
+  for (const member of members) {
+    if (normalizedPassenger === member.displayName.toLowerCase().trim()) {
+      return member;
+    }
+  }
+
+  // Try substring match: does passenger name contain member's display name?
+  for (const member of members) {
+    const memberName = member.displayName.toLowerCase().trim();
+    // Split member name into parts and check each
+    const memberParts = memberName.split(/\s+/);
+    // If any substantial part (>2 chars) of the member name appears in the passenger name
+    for (const part of memberParts) {
+      if (part.length > 2 && normalizedPassenger.includes(part)) {
+        return member;
+      }
+    }
+  }
+
+  // Try reverse: does member name contain parts of passenger name?
+  // This handles cases like passenger "Raine" matching member "Raine Wong"
+  for (const member of members) {
+    const memberName = member.displayName.toLowerCase().trim();
+    const passengerParts = normalizedPassenger.split(/\s+/);
+    for (const part of passengerParts) {
+      if (part.length > 2 && memberName.includes(part)) {
+        return member;
+      }
+    }
+  }
+
+  return null;
+}
 
 /**
  * Clean email/PDF content to reduce LLM token usage.

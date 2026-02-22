@@ -6,7 +6,9 @@ import { useGroupTimeline } from "@/hooks/useGroupTimeline";
 import { EventCard } from "@/components/EventCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar } from "@/components/Avatar";
+import { getEventIcon } from "@/lib/eventIcons";
 import {
+  formatEventTime,
   getUrgencyStatus,
   getMustLeaveTime,
 } from "@/lib/time";
@@ -20,7 +22,7 @@ export function Dashboard({ userId }: DashboardProps) {
   const { events: nextEvents, loading } = useNextEvent(userId);
   const nextEvent = nextEvents[0] ?? null;
 
-  const { togetherPeriods, partnerEvents, profiles } = useGroupTimeline({
+  const { allEvents, togetherPeriods, partnerEvents, profiles } = useGroupTimeline({
     userId,
   });
 
@@ -56,10 +58,17 @@ export function Dashboard({ userId }: DashboardProps) {
     );
   }, [partnerEvents]);
 
+  // Find any partner user ID (from next event, or from any partner event)
+  const partnerUserId = useMemo(() => {
+    if (partnerNextEvent) return partnerNextEvent.user_id;
+    if (partnerEvents.length > 0) return partnerEvents[0]!.user_id;
+    return null;
+  }, [partnerNextEvent, partnerEvents]);
+
   const partnerProfile = useMemo(() => {
-    if (!partnerNextEvent) return null;
-    return profiles[partnerNextEvent.user_id] ?? null;
-  }, [partnerNextEvent, profiles]);
+    if (!partnerUserId) return null;
+    return profiles[partnerUserId] ?? null;
+  }, [partnerUserId, profiles]);
 
   // Next event details
   const mustLeaveTime = nextEvent ? getMustLeaveTime(nextEvent) : null;
@@ -68,6 +77,90 @@ export function Dashboard({ userId }: DashboardProps) {
     nextEvent ? new Date(nextEvent.start_at) : null
   );
   const leaveCountdownText = useCountdown(mustLeaveTime);
+
+  // Is urgency high enough to take over the hero?
+  const isUrgentHero = urgency === "amber" || urgency === "red";
+
+  // Partner status: derive from their events
+  const partnerStatus = useMemo(() => {
+    if (!partnerUserId) return null;
+    const pProfile = profiles[partnerUserId];
+    const pName = pProfile?.display_name ?? "Partner";
+    const pHomeCity = pProfile?.base_city ?? null;
+    const now = new Date();
+
+    // Get ALL partner events (not just next future one)
+    const pId = partnerUserId;
+    const pAllEvents = partnerEvents
+      .filter((e) => e.user_id === pId)
+      .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+
+    // Check if partner is currently mid-event (in transit, at hotel, etc.)
+    for (const ev of pAllEvents) {
+      const start = new Date(ev.start_at);
+      const end = new Date(ev.end_at);
+      if (start <= now && end > now) {
+        // Currently mid-event
+        const minsLeft = Math.round((end.getTime() - now.getTime()) / 60000);
+        const hoursLeft = Math.floor(minsLeft / 60);
+        const remainStr = hoursLeft > 0 ? `${hoursLeft}h ${minsLeft % 60}m` : `${minsLeft}m`;
+
+        if (ev.event_type === "flight") {
+          const dest = ev.end_location || ev.location || "";
+          return { emoji: "✈️", text: `En route${dest ? ` to ${dest}` : ""}`, sub: `Landing in ${remainStr}`, name: pName };
+        }
+        if (ev.event_type === "train") {
+          const dest = ev.end_location || "";
+          return { emoji: "🚆", text: `On a train${dest ? ` to ${dest}` : ""}`, sub: `Arriving in ${remainStr}`, name: pName };
+        }
+        if (ev.event_type === "hotel") {
+          return { emoji: "🏨", text: `At ${ev.title}`, sub: ev.location ?? undefined, name: pName };
+        }
+        if (ev.event_type === "activity" || ev.event_type === "restaurant") {
+          return { emoji: ev.event_type === "restaurant" ? "🍽️" : "🎯", text: ev.title, sub: ev.location ?? undefined, name: pName };
+        }
+        // Generic in-progress
+        return { emoji: "📍", text: ev.title, sub: `Ends in ${remainStr}`, name: pName };
+      }
+    }
+
+    // Not mid-event — figure out where they are based on most recent past event
+    const pastEvents = pAllEvents.filter((e) => new Date(e.end_at) <= now);
+    if (pastEvents.length > 0) {
+      const lastEvent = pastEvents[pastEvents.length - 1]!;
+      const arrivalCity = lastEvent.end_location
+        ? lastEvent.end_location
+        : lastEvent.location;
+      if (arrivalCity) {
+        const isHome = pHomeCity && arrivalCity.toLowerCase().includes(pHomeCity.toLowerCase());
+        return {
+          emoji: isHome ? "🏠" : "📍",
+          text: isHome ? `Home in ${pHomeCity}` : `In ${arrivalCity}`,
+          sub: undefined,
+          name: pName,
+        };
+      }
+    }
+
+    // Fallback: assume home
+    if (pHomeCity) {
+      return { emoji: "🏠", text: `Home in ${pHomeCity}`, sub: undefined, name: pName };
+    }
+
+    return null;
+  }, [partnerUserId, partnerEvents, profiles]);
+
+  // Events happening during current together period
+  const togetherUpcoming = useMemo(() => {
+    if (!isCurrentlyTogether || !nextTogether) return [];
+    const now = new Date();
+    return allEvents
+      .filter((e) => {
+        const start = new Date(e.start_at);
+        return start > now && start < nextTogether.endAt;
+      })
+      .slice(0, 5); // cap at 5 events
+  }, [isCurrentlyTogether, nextTogether, allEvents]);
 
   if (loading) {
     return (
@@ -93,7 +186,78 @@ export function Dashboard({ userId }: DashboardProps) {
         )}
       </div>
 
-      {/* Together countdown / status — THE hero */}
+      {/* URGENCY HERO — when leave-by is amber/red, this takes the top spot */}
+      {isUrgentHero && nextEvent && mustLeaveTime && (
+        <div
+          className={`rounded-2xl border shadow-sm overflow-hidden ${
+            urgency === "red"
+              ? "bg-gradient-to-r from-red-50 to-red-100 border-red-300"
+              : "bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-300"
+          }`}
+        >
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <p
+                className={`text-xs font-bold uppercase tracking-wide ${
+                  urgency === "red" ? "text-red-500" : "text-amber-600"
+                }`}
+              >
+                {urgency === "red" ? "Go now!" : "Get ready"}
+              </p>
+              <StatusBadge status={urgency} size="md" />
+            </div>
+            <p
+              className={`text-2xl font-bold ${
+                urgency === "red" ? "text-red-700" : "text-amber-800"
+              }`}
+            >
+              Leave in {leaveCountdownText}
+            </p>
+            {nextEvent.leave_by_note && (
+              <p
+                className={`text-sm mt-0.5 ${
+                  urgency === "red" ? "text-red-600" : "text-amber-600"
+                }`}
+              >
+                {nextEvent.leave_by_note}
+              </p>
+            )}
+          </div>
+
+          {/* Quick-glance details: terminal, gate, ref */}
+          <div
+            className={`px-4 py-2.5 border-t flex flex-wrap gap-2 text-xs ${
+              urgency === "red"
+                ? "border-red-200 text-red-700"
+                : "border-amber-200 text-amber-700"
+            }`}
+          >
+            <span className="font-medium">{nextEvent.title}</span>
+            {nextEvent.terminal && (
+              <span className="px-1.5 py-0.5 rounded bg-white/60 font-medium">
+                T{nextEvent.terminal}
+              </span>
+            )}
+            {nextEvent.gate && (
+              <span className="px-1.5 py-0.5 rounded bg-white/60 font-medium">
+                Gate {nextEvent.gate}
+              </span>
+            )}
+            {nextEvent.booking_reference && (
+              <button
+                onClick={() =>
+                  navigator.clipboard.writeText(nextEvent.booking_reference!)
+                }
+                className="px-1.5 py-0.5 rounded bg-white/60 font-mono font-medium hover:bg-white/80 transition-colors"
+              >
+                {nextEvent.booking_reference} 📋
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Together countdown / status — THE emotional hero (demoted if urgency is active) */}
       {nextTogether && (
         <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-2xl border border-rose-200 shadow-sm p-4">
           {isCurrentlyTogether ? (
@@ -112,6 +276,26 @@ export function Dashboard({ userId }: DashboardProps) {
               <p className="text-rose-500 text-sm mt-1">
                 {nextTogether.users.join(" & ")}
               </p>
+
+              {/* Upcoming plans during this visit */}
+              {togetherUpcoming.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-rose-200/50 space-y-1.5">
+                  <p className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+                    Coming up this visit
+                  </p>
+                  {togetherUpcoming.map((ev) => (
+                    <div key={ev.id} className="flex items-center gap-2 text-sm text-rose-700">
+                      <span className="text-base flex-shrink-0">
+                        {getEventIcon(ev.event_type)}
+                      </span>
+                      <span className="truncate">{ev.title}</span>
+                      <span className="text-rose-400 text-xs ml-auto flex-shrink-0">
+                        {formatEventTime(ev.start_at, ev.start_timezone)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -134,7 +318,7 @@ export function Dashboard({ userId }: DashboardProps) {
         </div>
       )}
 
-      {/* Next event — merged compact card with countdown */}
+      {/* Next event — merged compact card with countdown (skip urgency banner if already shown as hero) */}
       {nextEvent ? (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           {/* Top section: countdown + urgency */}
@@ -147,7 +331,9 @@ export function Dashboard({ userId }: DashboardProps) {
                 {countdownText}
               </p>
             </div>
-            {urgency && <StatusBadge status={urgency} size="md" />}
+            {urgency && !isUrgentHero && (
+              <StatusBadge status={urgency} size="md" />
+            )}
           </div>
 
           {/* Event as collapsible card (inline, no extra border) */}
@@ -159,17 +345,9 @@ export function Dashboard({ userId }: DashboardProps) {
             />
           </div>
 
-          {/* Leave-by (prominent when urgent) */}
-          {mustLeaveTime && urgency !== "past" && (
-            <div
-              className={`px-4 py-2.5 border-t text-sm ${
-                urgency === "red"
-                  ? "bg-red-50 border-red-100 text-red-700"
-                  : urgency === "amber"
-                  ? "bg-amber-50 border-amber-100 text-amber-700"
-                  : "bg-gray-50 border-gray-100 text-gray-600"
-              }`}
-            >
+          {/* Leave-by (only if NOT shown as urgency hero) */}
+          {!isUrgentHero && mustLeaveTime && urgency !== "past" && (
+            <div className="px-4 py-2.5 border-t text-sm bg-gray-50 border-gray-100 text-gray-600">
               <span className="font-medium">
                 Leave in {leaveCountdownText}
               </span>
@@ -193,8 +371,8 @@ export function Dashboard({ userId }: DashboardProps) {
         </div>
       )}
 
-      {/* Partner's next event */}
-      {partnerNextEvent && partnerProfile && (
+      {/* Partner status + next event */}
+      {partnerProfile && (
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Avatar
@@ -203,11 +381,23 @@ export function Dashboard({ userId }: DashboardProps) {
               size="sm"
               colorScheme="rose"
             />
-            <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-              {partnerProfile.display_name ?? "Partner"}&apos;s Next
-            </span>
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                {partnerProfile.display_name ?? "Partner"}
+              </span>
+              {partnerStatus && (
+                <p className="text-sm text-gray-600 truncate">
+                  {partnerStatus.emoji} {partnerStatus.text}
+                  {partnerStatus.sub && (
+                    <span className="text-gray-400 text-xs ml-1">
+                      · {partnerStatus.sub}
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
           </div>
-          <EventCard event={partnerNextEvent} />
+          {partnerNextEvent && <EventCard event={partnerNextEvent} />}
         </div>
       )}
     </div>

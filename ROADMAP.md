@@ -64,25 +64,26 @@ Keep the current top navigation bar. Content area already works at wider widths.
 
 ## Phased Feature Plan
 
-### Phase 1: Mobile UI Cleanup *(current)*
+### Phase 1: Mobile UI Cleanup ✅
 Make the existing features work well on phones.
 
-- Bottom tab navigation for mobile
-- Collapsible event cards (tap to expand)
-- Dashboard: together countdown as hero, merged event card
-- Timeline: horizontally scrollable filter pills, compact cards
-- iOS safe area support
-- Booking reference tap-to-copy
-- Sign-out moved to Profile page
+- ✅ Bottom tab navigation for mobile
+- ✅ Collapsible event cards (tap to expand)
+- ✅ Dashboard: together countdown as hero, merged event card
+- ✅ Timeline: horizontally scrollable filter pills, compact cards
+- ✅ iOS safe area support
+- ✅ Booking reference tap-to-copy
+- ✅ Sign-out moved to Profile page
+- ✅ Avatar upload: crop/resize to 256×256 JPEG, accepts up to 10MB + HEIC
 
-### Phase 2: Richer Context
+### Phase 2: Richer Context ✅
 Make the app smarter about what it shows when.
 
-- **Trip grouping**: Auto-detect trips (cluster of events in a date range) and show them as collapsible trip sections in the timeline
-- **Partner status**: Show richer info — "En route: HKG to LHR, landing in 3h" or "In London"
-- **Currently-together enhancements**: Show remaining time, upcoming plans during the visit
-- **Address display**: Show event addresses, tappable to open in maps
-- **Urgency promotion**: When leave-by is amber/red, make it the dashboard hero
+- ✅ **Urgency promotion**: When leave-by is amber/red, it takes over as the dashboard hero — above the together countdown. Shows "Leave in 45m" with terminal, gate, booking ref at a glance
+- ✅ **Partner status**: Derives real-time-ish status from events — "✈️ En route to LHR, landing in 3h", "📍 In London", "🏠 Home in Hong Kong". Shown on dashboard in the partner section
+- ✅ **Address display**: Event addresses are tappable links that open in Apple Maps. Map-pin icon to make it obvious it's tappable
+- ✅ **Currently-together enhancements**: When together, shows upcoming events during this visit period below the hero (mini itinerary)
+- ✅ **Trip grouping**: Auto-detect trips (cluster events within 48h gaps) and show them as named, collapsible sections in the timeline (e.g., "🧳 London & Paris · 3–10 Mar · 8 events"). Events not part of a trip shown under "Other events"
 
 ### Phase 3: AI Features
 Add intelligence to the trip planning experience.

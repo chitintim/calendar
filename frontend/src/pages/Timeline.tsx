@@ -7,6 +7,7 @@ import { ActionBar } from "@/components/ActionBar";
 import { ConfirmDeleteModal } from "@/components/ConfirmDeleteModal";
 import { formatEventDate } from "@/lib/time";
 import { downloadIcs } from "@/lib/icsGenerator";
+import { detectTrips, type DetectedTrip } from "@/lib/tripDetection";
 import type { EventType, CalendarEvent, Profile } from "@/lib/types";
 import type { TogetherPeriod, GapPeriod } from "@/lib/togetherTimes";
 import { getEventIcon, getEventTypeName } from "@/lib/eventIcons";
@@ -110,6 +111,142 @@ function buildTimelineItems(
   return entries.map((e) => e.item);
 }
 
+// ---- Trip Section Component ----
+
+interface TripSectionProps {
+  trip: DetectedTrip;
+  items: TimelineItem[];
+  userId: string;
+  profiles: Record<string, Profile>;
+  hasPartnerEvents: boolean;
+  mode: TimelineMode;
+  selected: Set<string>;
+  onToggleSelect: (id: string) => void;
+}
+
+function TripSection({
+  trip,
+  items,
+  userId,
+  profiles,
+  hasPartnerEvents,
+  mode,
+  selected,
+  onToggleSelect,
+}: TripSectionProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const dateRange = formatTripDateRange(trip.startDate, trip.endDate);
+  const eventCount = trip.events.length;
+
+  return (
+    <div className="rounded-xl border border-brand-200 bg-brand-50/30 overflow-hidden">
+      {/* Trip header — always visible, tap to collapse */}
+      <button
+        onClick={() => setCollapsed((prev) => !prev)}
+        className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-brand-50/60 transition-colors"
+      >
+        <span className="text-base">🧳</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 text-sm truncate">
+            {trip.name}
+          </p>
+          <p className="text-[10px] text-gray-500">
+            {dateRange} · {eventCount} event{eventCount !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <svg
+          className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 ${
+            collapsed ? "" : "rotate-180"
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Trip events — collapsible */}
+      <div
+        className={`grid transition-all duration-200 ease-in-out ${
+          collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="px-2 pb-2 space-y-2">
+            {items.map((item) => {
+              switch (item.type) {
+                case "date-header":
+                  return (
+                    <div key={item.key} className="py-1">
+                      <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                        {item.date}
+                      </h2>
+                    </div>
+                  );
+
+                case "event": {
+                  const isSelectable = mode !== "view";
+                  const isManageAndNotMine =
+                    mode === "manage" && item.event.user_id !== userId;
+                  const ownerProps = hasPartnerEvents
+                    ? getOwnerProps(item.event, userId, profiles)
+                    : undefined;
+
+                  return (
+                    <div
+                      key={item.key}
+                      className={isManageAndNotMine ? "opacity-40" : ""}
+                    >
+                      <EventCard
+                        event={item.event}
+                        showDate={false}
+                        selectable={isSelectable && !isManageAndNotMine}
+                        selected={selected.has(item.event.id)}
+                        onToggleSelect={onToggleSelect}
+                        ownerName={ownerProps?.ownerName}
+                        ownerInitial={ownerProps?.ownerInitial}
+                        ownerColor={ownerProps?.ownerColor}
+                        ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
+                      />
+                    </div>
+                  );
+                }
+
+                case "together":
+                  return (
+                    <TogetherBand key={item.key} period={item.period} />
+                  );
+
+                case "gap":
+                  return <GapIndicator key={item.key} gap={item.gap} />;
+
+                default:
+                  return null;
+              }
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatTripDateRange(start: Date, end: Date): string {
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  const startStr = start.toLocaleDateString("en-GB", opts);
+  const endStr = end.toLocaleDateString("en-GB", opts);
+  if (startStr === endStr) return startStr;
+  // Same month? "3 – 10 Mar"
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `${start.getDate()} – ${endStr}`;
+  }
+  return `${startStr} – ${endStr}`;
+}
+
+// ---- Main Timeline ----
+
 export function Timeline({ userId }: TimelineProps) {
   const [showPast, setShowPast] = useState(false);
   const [showGaps, setShowGaps] = useState(true);
@@ -121,6 +258,8 @@ export function Timeline({ userId }: TimelineProps) {
 
   const { allEvents, togetherPeriods, gaps, profiles, loading, deleteEvents } =
     useGroupTimeline({ userId, showPast });
+
+  const myProfile = profiles[userId];
 
   const hasPartnerEvents = useMemo(
     () => allEvents.some((e) => e.user_id !== userId),
@@ -135,16 +274,60 @@ export function Timeline({ userId }: TimelineProps) {
     return result;
   }, [allEvents, filterType]);
 
-  const timelineItems = useMemo(
-    () =>
-      buildTimelineItems(
-        filtered,
-        filterType === "all" ? togetherPeriods : [],
-        filterType === "all" ? gaps : [],
-        showGaps
-      ),
-    [filtered, togetherPeriods, gaps, showGaps, filterType]
+  // Trip detection
+  const { trips, ungrouped } = useMemo(
+    () => detectTrips(filtered, myProfile?.base_city ?? null),
+    [filtered, myProfile?.base_city]
   );
+
+  // Build timeline items for each trip (with together bands & gaps scoped to trip period)
+  const tripSections = useMemo(() => {
+    return trips.map((trip) => {
+      const tripEventIds = new Set(trip.events.map((e) => e.id));
+      const tripTogether =
+        filterType === "all"
+          ? togetherPeriods.filter(
+              (p) => p.startAt < trip.endDate && p.endAt > trip.startDate
+            )
+          : [];
+      const tripGaps =
+        filterType === "all"
+          ? gaps.filter(
+              (g) => g.startAt >= trip.startDate && g.endAt <= trip.endDate
+            )
+          : [];
+      const items = buildTimelineItems(
+        trip.events,
+        tripTogether,
+        tripGaps,
+        showGaps
+      );
+      return { trip, items, eventIds: tripEventIds };
+    });
+  }, [trips, togetherPeriods, gaps, showGaps, filterType]);
+
+  // Build timeline items for ungrouped events
+  const ungroupedItems = useMemo(() => {
+    if (ungrouped.length === 0) return [];
+    const ungroupedTogether =
+      filterType === "all"
+        ? togetherPeriods.filter((p) => {
+            // Only include together periods not already in a trip
+            return !trips.some(
+              (t) => p.startAt < t.endDate && p.endAt > t.startDate
+            );
+          })
+        : [];
+    const ungroupedGaps =
+      filterType === "all"
+        ? gaps.filter((g) => {
+            return !trips.some(
+              (t) => g.startAt >= t.startDate && g.endAt <= t.endDate
+            );
+          })
+        : [];
+    return buildTimelineItems(ungrouped, ungroupedTogether, ungroupedGaps, showGaps);
+  }, [ungrouped, togetherPeriods, gaps, trips, showGaps, filterType]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
@@ -236,6 +419,9 @@ export function Timeline({ userId }: TimelineProps) {
       : mode === "export"
       ? "bg-blue-50 border-blue-200"
       : "";
+
+  const hasNoEvents = allEvents.length === 0;
+  const hasNoResults = filtered.length === 0 && !hasNoEvents;
 
   return (
     <div className={`space-y-3 ${mode !== "view" ? "pb-20" : ""}`}>
@@ -343,18 +529,44 @@ export function Timeline({ userId }: TimelineProps) {
         </>
       )}
 
-      {/* Timeline */}
-      {timelineItems.length === 0 ? (
+      {/* Empty states */}
+      {hasNoEvents && (
         <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
           <p className="text-gray-500 text-sm">
-            {allEvents.length === 0
-              ? "No events yet. Forward a booking email to get started."
-              : "No events match your filters."}
+            No events yet. Forward a booking email to get started.
           </p>
         </div>
-      ) : (
+      )}
+      {hasNoResults && (
+        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+          <p className="text-gray-500 text-sm">No events match your filters.</p>
+        </div>
+      )}
+
+      {/* Trip sections */}
+      {tripSections.map(({ trip, items }, i) => (
+        <TripSection
+          key={`trip-${i}`}
+          trip={trip}
+          items={items}
+          userId={userId}
+          profiles={profiles}
+          hasPartnerEvents={hasPartnerEvents}
+          mode={mode}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+        />
+      ))}
+
+      {/* Ungrouped events */}
+      {ungroupedItems.length > 0 && (
         <div className="space-y-2">
-          {timelineItems.map((item) => {
+          {trips.length > 0 && (
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">
+              Other events
+            </h2>
+          )}
+          {ungroupedItems.map((item) => {
             switch (item.type) {
               case "date-header":
                 return (

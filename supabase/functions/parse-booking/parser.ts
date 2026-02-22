@@ -24,6 +24,11 @@ TITLE FORMATS:
 - Bus: "OPERATOR ORIGIN → DESTINATION" (e.g., "FlixBus Munich → Vienna")
 - Transfer: "TRANSFER ORIGIN → DESTINATION" (e.g., "Transfer CDG Airport → Hotel")
 
+CITY FIELDS (IMPORTANT — always set these):
+- city: The normalized city name for the start/departure/venue location. Just the city name — NO airport names, station names, terminal info, or venue names. Examples: "Hong Kong", "London", "Paris", "Dubai", "Tokyo", "New York".
+- endCity: For transit events (flights, trains, ferries, buses, transfers), this is the normalized arrival city name. Same rules — just the city. For single-location events (hotels, restaurants, activities), set to null.
+- These must be CLEAN city names only — NOT "London Heathrow", "Paris CDG", "Paris Gare du Nord", "Hong Kong International Airport". Just "London", "Paris", "Hong Kong".
+
 END TIME RULES:
 - Flights, trains: always have explicit arrival times — use them.
 - Hotels: check-out date/time. Default 11:00 if only dates given.
@@ -77,10 +82,11 @@ interface ParsedEvent {
   endTimezone: string;
   location: string;
   endLocation: string | null;
+  city: string;
+  endCity: string | null;
   bookingReference: string | null;
   notes: string;
   isAllDay: boolean;
-  // New fields
   address: string | null;
   terminal: string | null;
   gate: string | null;
@@ -133,6 +139,14 @@ const JSON_SCHEMA = {
           endLocation: {
             type: ["string", "null"] as const,
             description: "End location (arrival airport for flights, dropoff for car rental, null for single-location events)",
+          },
+          city: {
+            type: "string" as const,
+            description: "Normalized city name for start/departure/venue location. Just the city name — e.g. 'London', 'Paris', 'Hong Kong', 'Dubai'. Never include airport/station/venue names.",
+          },
+          endCity: {
+            type: ["string", "null"] as const,
+            description: "Normalized arrival city name for transit events (flights, trains, ferries, buses, transfers). Just the city — e.g. 'London', 'Paris'. Null for single-location events (hotels, restaurants, activities).",
           },
           bookingReference: {
             type: ["string", "null"] as const,
@@ -187,6 +201,8 @@ const JSON_SCHEMA = {
           "endTimezone",
           "location",
           "endLocation",
+          "city",
+          "endCity",
           "bookingReference",
           "notes",
           "isAllDay",

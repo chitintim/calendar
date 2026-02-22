@@ -317,6 +317,8 @@ export async function saveEvents(
         end_timezone: event.endTimezone,
         location: event.location,
         end_location: event.endLocation,
+        city: event.city,
+        end_city: event.endCity,
         is_all_day: event.isAllDay,
         booking_reference: event.bookingReference,
         notes: event.notes,

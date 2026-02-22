@@ -141,11 +141,24 @@ function extractCity(location: string | null): string | null {
     }
   }
 
+  // Try known city names embedded in the string (case-insensitive).
+  // This catches "Paris Gare du Nord" → "Paris", "London St Pancras" → "London", etc.
+  const locationLower = location.toLowerCase();
+  for (const city of Object.values(AIRPORT_CITY)) {
+    if (locationLower.includes(city.toLowerCase())) {
+      return city;
+    }
+  }
+
   // Try to extract city from "City Name" or "Hotel, City" patterns
   // For hotels/restaurants: "Hilton, London" → "London"
   const commaCity = location.match(/,\s*([^,]+)$/);
   if (commaCity && commaCity[1]) {
-    return commaCity[1].trim();
+    const candidate = commaCity[1].trim();
+    // Reject things like "Terminal 1", "Gate 5"
+    if (!/^(terminal|gate|level|floor|hall)\b/i.test(candidate) && candidate.length < 30) {
+      return candidate;
+    }
   }
 
   // Return the location itself if short enough (likely a city name)
@@ -156,20 +169,26 @@ function extractCity(location: string | null): string | null {
 
 /**
  * Get the arrival city from an event.
+ * Prefers the structured `end_city`/`city` columns, falling back to fuzzy extraction.
  */
 function getArrivalCity(event: CalendarEvent): string | null {
-  // For flights/trains/ferries/buses: use end_location
+  // Prefer structured city columns
+  if (event.end_city) return event.end_city;
+  if (!event.end_location && event.city) return event.city;
+
+  // Fallback: extract from location strings
   if (event.end_location) {
     return extractCity(event.end_location);
   }
-  // For hotels/restaurants/activities: use location
   return extractCity(event.location);
 }
 
 /**
  * Get the departure city from an event (where the user IS when it starts).
+ * Prefers the structured `city` column, falling back to fuzzy extraction.
  */
 function getDepartureCity(event: CalendarEvent): string | null {
+  if (event.city) return event.city;
   return extractCity(event.location);
 }
 

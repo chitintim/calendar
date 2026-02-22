@@ -104,8 +104,18 @@ function extractCity(location: string | null): string | null {
 
 /**
  * Get the destination city from an event.
+ * Prefers the structured `end_city`/`city` columns, falling back to fuzzy extraction.
  */
 function getDestinationCity(event: CalendarEvent): string | null {
+  // Prefer structured city columns
+  if (TRANSIT_TYPES.has(event.event_type) && event.end_city) {
+    return event.end_city;
+  }
+  if (event.city && !TRANSIT_TYPES.has(event.event_type)) {
+    return event.city;
+  }
+
+  // Fallback: extract from location strings
   if (TRANSIT_TYPES.has(event.event_type) && event.end_location) {
     return extractCity(event.end_location);
   }

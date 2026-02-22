@@ -23,6 +23,8 @@ export interface CalendarEvent {
   end_timezone: string;
   location: string | null;
   end_location: string | null;
+  city: string | null;
+  end_city: string | null;
   is_all_day: boolean;
   booking_reference: string | null;
   notes: string | null;
@@ -101,17 +103,52 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
+      ai_analyses: {
+        Row: {
+          analysis: Json;
+          context_snapshot: Json | null;
+          created_at: string;
+          group_id: string | null;
+          id: string;
+          raw_text: string | null;
+          trip_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          analysis: Json;
+          context_snapshot?: Json | null;
+          created_at?: string;
+          group_id?: string | null;
+          id?: string;
+          raw_text?: string | null;
+          trip_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          analysis?: Json;
+          context_snapshot?: Json | null;
+          created_at?: string;
+          group_id?: string | null;
+          id?: string;
+          raw_text?: string | null;
+          trip_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       events: {
         Row: {
           address: string | null;
           arrive_by_minutes: number | null;
           booking_reference: string | null;
+          city: string | null;
           created_at: string;
           email_id: string | null;
           end_at: string;
+          end_city: string | null;
           end_location: string | null;
           end_timezone: string;
           event_type: string;
@@ -135,9 +172,11 @@ export interface Database {
           address?: string | null;
           arrive_by_minutes?: number | null;
           booking_reference?: string | null;
+          city?: string | null;
           created_at?: string;
           email_id?: string | null;
           end_at: string;
+          end_city?: string | null;
           end_location?: string | null;
           end_timezone: string;
           event_type: string;
@@ -161,9 +200,11 @@ export interface Database {
           address?: string | null;
           arrive_by_minutes?: number | null;
           booking_reference?: string | null;
+          city?: string | null;
           created_at?: string;
           email_id?: string | null;
           end_at?: string;
+          end_city?: string | null;
           end_location?: string | null;
           end_timezone?: string;
           event_type?: string;
@@ -182,6 +223,60 @@ export interface Database {
           travel_from_previous_minutes?: number | null;
           trip_id?: string | null;
           user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      group_members: {
+        Row: {
+          group_id: string;
+          id: string;
+          joined_at: string;
+          role: string;
+          user_id: string;
+        };
+        Insert: {
+          group_id: string;
+          id?: string;
+          joined_at?: string;
+          role?: string;
+          user_id: string;
+        };
+        Update: {
+          group_id?: string;
+          id?: string;
+          joined_at?: string;
+          role?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      groups: {
+        Row: {
+          created_at: string;
+          created_by: string;
+          id: string;
+          invite_code: string | null;
+          invite_expires_at: string | null;
+          max_members: number;
+          name: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          invite_code?: string | null;
+          invite_expires_at?: string | null;
+          max_members?: number;
+          name: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          invite_code?: string | null;
+          invite_expires_at?: string | null;
+          max_members?: number;
+          name?: string;
         };
         Relationships: [];
       };
@@ -218,84 +313,6 @@ export interface Database {
           id?: string;
           preferences?: Json | null;
           updated_at?: string;
-        };
-        Relationships: [];
-      };
-      user_emails: {
-        Row: {
-          created_at: string;
-          email: string;
-          id: string;
-          is_primary: boolean;
-          user_id: string;
-        };
-        Insert: {
-          created_at?: string;
-          email: string;
-          id?: string;
-          is_primary?: boolean;
-          user_id: string;
-        };
-        Update: {
-          created_at?: string;
-          email?: string;
-          id?: string;
-          is_primary?: boolean;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
-      groups: {
-        Row: {
-          created_at: string;
-          created_by: string;
-          id: string;
-          invite_code: string | null;
-          invite_expires_at: string | null;
-          max_members: number;
-          name: string;
-        };
-        Insert: {
-          created_at?: string;
-          created_by: string;
-          id?: string;
-          invite_code?: string | null;
-          invite_expires_at?: string | null;
-          max_members?: number;
-          name: string;
-        };
-        Update: {
-          created_at?: string;
-          created_by?: string;
-          id?: string;
-          invite_code?: string | null;
-          invite_expires_at?: string | null;
-          max_members?: number;
-          name?: string;
-        };
-        Relationships: [];
-      };
-      group_members: {
-        Row: {
-          group_id: string;
-          id: string;
-          joined_at: string;
-          role: string;
-          user_id: string;
-        };
-        Insert: {
-          group_id: string;
-          id?: string;
-          joined_at?: string;
-          role?: string;
-          user_id: string;
-        };
-        Update: {
-          group_id?: string;
-          id?: string;
-          joined_at?: string;
-          role?: string;
-          user_id?: string;
         };
         Relationships: [];
       };
@@ -338,6 +355,93 @@ export interface Database {
           status?: string;
           subject?: string;
           user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      timeline_comments: {
+        Row: {
+          content: string;
+          created_at: string;
+          event_id: string | null;
+          group_id: string | null;
+          id: string;
+          trip_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          content: string;
+          created_at?: string;
+          event_id?: string | null;
+          group_id?: string | null;
+          id?: string;
+          trip_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          content?: string;
+          created_at?: string;
+          event_id?: string | null;
+          group_id?: string | null;
+          id?: string;
+          trip_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      trips: {
+        Row: {
+          auto_generated: boolean;
+          created_at: string;
+          end_date: string | null;
+          group_id: string | null;
+          id: string;
+          name: string;
+          start_date: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          auto_generated?: boolean;
+          created_at?: string;
+          end_date?: string | null;
+          group_id?: string | null;
+          id?: string;
+          name: string;
+          start_date?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          auto_generated?: boolean;
+          created_at?: string;
+          end_date?: string | null;
+          group_id?: string | null;
+          id?: string;
+          name?: string;
+          start_date?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_emails: {
+        Row: {
+          created_at: string;
+          email: string;
+          id: string;
+          is_primary: boolean;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          email: string;
+          id?: string;
+          is_primary?: boolean;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          email?: string;
+          id?: string;
+          is_primary?: boolean;
+          user_id?: string;
         };
         Relationships: [];
       };

@@ -124,6 +124,21 @@ export async function buildGroupContext(
     lines.push("  (no events found)");
   }
 
+  // 5. Fetch trip notes
+  const { data: tripNotes } = await client
+    .from("timeline_comments")
+    .select("trip_signature, content")
+    .eq("group_id", groupId)
+    .not("trip_signature", "is", null);
+
+  if (tripNotes && tripNotes.length > 0) {
+    lines.push("");
+    lines.push("TRIP NOTES:");
+    for (const tn of tripNotes as { trip_signature: string; content: string }[]) {
+      lines.push(`- [${tn.trip_signature}] ${tn.content}`);
+    }
+  }
+
   let context = lines.join("\n");
 
   // Truncate if too long to stay within Claude context limits

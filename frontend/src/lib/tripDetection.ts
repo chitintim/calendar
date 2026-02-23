@@ -384,6 +384,17 @@ function clusterByDateGap(
 }
 
 /**
+ * Compute a stable, deterministic signature for a detected trip.
+ * Used as the key for storing trip-level notes in timeline_comments.
+ * Format: "city1,city2:YYYY-MM-DD" (sorted lowercase cities + start date)
+ */
+export function tripSignature(trip: DetectedTrip): string {
+  const cities = trip.cities.map((c) => c.toLowerCase().trim()).sort().join(",");
+  const startDate = trip.startDate.toISOString().split("T")[0];
+  return `${cities}:${startDate}`;
+}
+
+/**
  * Build a human-readable trip name from the cities.
  * "London" → "London Trip"
  * "London", "Paris" → "London & Paris"

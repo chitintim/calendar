@@ -5,6 +5,8 @@ import type { ChatMessage } from "@/lib/types";
 interface UseChatOptions {
   /** Called when the AI updates an event note via tool use */
   onNoteUpdated?: (eventId: string, note: string, eventTitle: string) => void;
+  /** Called when the AI updates a trip note via tool use */
+  onTripNoteUpdated?: (tripSignature: string, note: string) => void;
 }
 
 export function useChat(groupId: string | null, userId: string | undefined, options?: UseChatOptions) {
@@ -185,6 +187,11 @@ export function useChat(groupId: string | null, userId: string | undefined, opti
               if (parsed.note_updated) {
                 const { event_id, note, event_title } = parsed.note_updated;
                 options?.onNoteUpdated?.(event_id, note, event_title);
+              }
+
+              if (parsed.trip_note_updated) {
+                const { trip_signature, note } = parsed.trip_note_updated;
+                options?.onTripNoteUpdated?.(trip_signature, note);
               }
 
               if (parsed.done && accumulated.trim()) {

@@ -376,6 +376,7 @@ export type Database = {
           group_id: string | null;
           id: string;
           trip_id: string | null;
+          trip_signature: string | null;
           user_id: string;
         };
         Insert: {
@@ -385,6 +386,7 @@ export type Database = {
           group_id?: string | null;
           id?: string;
           trip_id?: string | null;
+          trip_signature?: string | null;
           user_id: string;
         };
         Update: {
@@ -394,6 +396,7 @@ export type Database = {
           group_id?: string | null;
           id?: string;
           trip_id?: string | null;
+          trip_signature?: string | null;
           user_id?: string;
         };
         Relationships: [];

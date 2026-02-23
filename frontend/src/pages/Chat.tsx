@@ -38,7 +38,12 @@ export function Chat({ userId }: ChatProps) {
   const chatOptions = useMemo(() => ({
     onNoteUpdated: (_eventId: string, note: string, eventTitle: string) => {
       setNoteUpdates((prev) => [...prev, { eventTitle, note }]);
-      // Auto-clear after 5s
+      setTimeout(() => setNoteUpdates((prev) => prev.slice(1)), 5000);
+    },
+    onTripNoteUpdated: (tripSignature: string, _note: string) => {
+      // Show the trip signature as a friendly label (e.g. "london:2026-03-10" → "london")
+      const label = tripSignature.split(":")[0] ?? tripSignature;
+      setNoteUpdates((prev) => [...prev, { eventTitle: `trip: ${label}`, note: _note }]);
       setTimeout(() => setNoteUpdates((prev) => prev.slice(1)), 5000);
     },
   }), []);

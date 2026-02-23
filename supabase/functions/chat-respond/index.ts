@@ -281,6 +281,62 @@ Deno.serve(async (req: Request) => {
       };
     }
 
+    if (tool.name === "update_trip_note") {
+      const { trip_signature, note } = tool.input as { trip_signature: string; note: string };
+
+      if (!trip_signature || !note) {
+        return { tool_use_id: tool.id, content: "Error: trip_signature and note are required." };
+      }
+
+      // Upsert: check if a note already exists for this trip + group
+      const { data: existing } = await serviceClient
+        .from("timeline_comments")
+        .select("id")
+        .eq("group_id", groupId)
+        .eq("trip_signature", trip_signature)
+        .maybeSingle();
+
+      if (existing) {
+        const { error: updateErr } = await serviceClient
+          .from("timeline_comments")
+          .update({ content: note })
+          .eq("id", existing.id);
+
+        if (updateErr) {
+          console.error("Failed to update trip note:", updateErr);
+          return { tool_use_id: tool.id, content: `Error: ${updateErr.message}` };
+        }
+      } else {
+        const { error: insertErr } = await serviceClient
+          .from("timeline_comments")
+          .insert({
+            group_id: groupId,
+            user_id: callerUserId,
+            trip_signature,
+            content: note,
+          });
+
+        if (insertErr) {
+          console.error("Failed to insert trip note:", insertErr);
+          return { tool_use_id: tool.id, content: `Error: ${insertErr.message}` };
+        }
+      }
+
+      // Notify the frontend
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            trip_note_updated: { trip_signature, note },
+          })}\n\n`,
+        ),
+      );
+
+      return {
+        tool_use_id: tool.id,
+        content: `Successfully saved trip note on "${trip_signature}": "${note}"`,
+      };
+    }
+
     return { tool_use_id: tool.id, content: "Error: Unknown tool." };
   }
 

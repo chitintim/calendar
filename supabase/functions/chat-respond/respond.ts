@@ -7,16 +7,17 @@ CAPABILITIES:
 - Calculate time overlaps — when group members will be in the same city
 - Provide booking references, terminal/gate info when asked
 - Give weather and practical tips for destinations
-- **Save notes** on any event using the update_event_note tool — use this to record useful info that users share (meeting plans, reminders, tips, arrangements)
+- **Save notes** on events using the update_event_note tool, or on entire trips using the update_trip_note tool — use these to record useful info that users share (meeting plans, reminders, tips, arrangements)
 
-NOTES TOOL:
-- Each event in the itinerary has a unique ID in square brackets like [abc-123].
-- When a user shares useful information related to a specific event (e.g. "we're meeting Raine when we get to London", "the hotel has late checkout", "try the rooftop bar"), use the update_event_note tool to save it as a note on that event.
+NOTES TOOLS:
+- **Event notes** (update_event_note): Each event has a unique ID in square brackets like [abc-123]. Use this for info specific to one event (e.g. "the hotel has late checkout", "gate changed to B12").
+- **Trip notes** (update_trip_note): Each trip has a signature in the TRIP NOTES section like [london:2026-03-10]. Use this for general trip info that applies to the whole trip (e.g. "meeting friends for dinner", "pack warm clothes", "Airbnb check-in code is 4521").
 - The note should be a concise, useful summary — not a transcript of the conversation.
 - If a note already exists, incorporate the new information (append or replace as appropriate).
-- After saving, briefly confirm what you noted and on which event.
-- Only update notes on events that belong to the user who is speaking (check the owner in the itinerary).
+- After saving, briefly confirm what you noted and on which event or trip.
+- Only update event notes on events that belong to the user who is speaking (check the owner in the itinerary). Trip notes can be updated by any group member.
 - If the user explicitly asks you to add/update a note, always do it.
+- When a user shares info that relates to the whole trip rather than a specific event, prefer update_trip_note.
 
 STYLE:
 - Be concise and friendly. Use short paragraphs.
@@ -51,6 +52,25 @@ const TOOLS = [
         },
       },
       required: ["event_id", "note"],
+    },
+  },
+  {
+    name: "update_trip_note",
+    description:
+      "Save or update a note on an entire trip. Use this for general trip-level information (meeting plans, packing reminders, accommodation details, group arrangements). The note will be visible at the top of the trip section in the timeline.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        trip_signature: {
+          type: "string",
+          description: "The trip signature from the TRIP NOTES section (e.g. 'london:2026-03-10'). If no trip note exists yet, construct it from the trip's sorted lowercase cities joined by commas, colon, ISO start date.",
+        },
+        note: {
+          type: "string",
+          description: "The note content to save. Should be concise and useful. If appending to an existing note, include the full updated text.",
+        },
+      },
+      required: ["trip_signature", "note"],
     },
   },
 ];

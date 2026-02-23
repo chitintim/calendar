@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useGroupTimeline } from "@/hooks/useGroupTimeline";
 import { EventCard } from "@/components/EventCard";
 import { TogetherBand } from "@/components/TogetherBand";
@@ -7,7 +7,7 @@ import { ActionBar } from "@/components/ActionBar";
 import { ConfirmDeleteModal } from "@/components/ConfirmDeleteModal";
 import { formatEventDate } from "@/lib/time";
 import { downloadIcs } from "@/lib/icsGenerator";
-import { detectTrips, type DetectedTrip } from "@/lib/tripDetection";
+import { detectTrips, tripSignature, type DetectedTrip } from "@/lib/tripDetection";
 import type { EventType, CalendarEvent, Profile } from "@/lib/types";
 import type { TogetherPeriod, GapPeriod } from "@/lib/togetherTimes";
 import { getEventIcon, getEventTypeName } from "@/lib/eventIcons";
@@ -123,6 +123,8 @@ interface TripSectionProps {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onUpdateNote?: (eventId: string, note: string) => Promise<void>;
+  tripNote?: string;
+  onUpdateTripNote?: (note: string) => Promise<void>;
 }
 
 function TripSection({
@@ -135,10 +137,40 @@ function TripSection({
   selected,
   onToggleSelect,
   onUpdateNote,
+  tripNote,
+  onUpdateTripNote,
 }: TripSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [editingTripNote, setEditingTripNote] = useState(false);
+  const [tripNoteText, setTripNoteText] = useState(tripNote ?? "");
+  const [savingTripNote, setSavingTripNote] = useState(false);
+  const tripNoteRef = useRef<HTMLTextAreaElement>(null);
   const dateRange = formatTripDateRange(trip.startDate, trip.endDate);
   const eventCount = trip.events.length;
+
+  const handleStartEditTripNote = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!onUpdateTripNote) return;
+      setTripNoteText(tripNote ?? "");
+      setEditingTripNote(true);
+      setTimeout(() => tripNoteRef.current?.focus(), 0);
+    },
+    [onUpdateTripNote, tripNote]
+  );
+
+  const handleSaveTripNote = useCallback(async () => {
+    if (!onUpdateTripNote) return;
+    const trimmed = tripNoteText.trim();
+    if (trimmed === (tripNote ?? "")) {
+      setEditingTripNote(false);
+      return;
+    }
+    setSavingTripNote(true);
+    await onUpdateTripNote(trimmed);
+    setSavingTripNote(false);
+    setEditingTripNote(false);
+  }, [onUpdateTripNote, tripNoteText, tripNote]);
 
   return (
     <div className="rounded-xl border border-brand-200 bg-brand-50/30 overflow-hidden">
@@ -177,6 +209,67 @@ function TripSection({
       >
         <div className="overflow-hidden">
           <div className="px-2 pb-2 space-y-2">
+            {/* Trip-level note */}
+            {mode === "view" && (
+              <div className="px-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                {editingTripNote ? (
+                  <div className="space-y-1.5">
+                    <textarea
+                      ref={tripNoteRef}
+                      value={tripNoteText}
+                      onChange={(e) => setTripNoteText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSaveTripNote();
+                        }
+                        if (e.key === "Escape") {
+                          setEditingTripNote(false);
+                          setTripNoteText(tripNote ?? "");
+                        }
+                      }}
+                      placeholder="Add a trip note..."
+                      rows={2}
+                      className="w-full text-xs text-gray-700 bg-white border border-brand-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveTripNote}
+                        disabled={savingTripNote}
+                        className="text-[10px] px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingTripNote ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingTripNote(false);
+                          setTripNoteText(tripNote ?? "");
+                        }}
+                        className="text-[10px] px-2.5 py-1 rounded-md text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : tripNote ? (
+                  <button
+                    onClick={onUpdateTripNote ? handleStartEditTripNote : undefined}
+                    className={`text-xs text-brand-600/70 text-left w-full italic ${
+                      onUpdateTripNote ? "hover:text-brand-700 cursor-pointer" : ""
+                    }`}
+                  >
+                    📝 {tripNote}
+                  </button>
+                ) : onUpdateTripNote ? (
+                  <button
+                    onClick={handleStartEditTripNote}
+                    className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+                  >
+                    + Add trip note
+                  </button>
+                ) : null}
+              </div>
+            )}
             {items.map((item) => {
               switch (item.type) {
                 case "date-header":
@@ -259,7 +352,7 @@ export function Timeline({ userId }: TimelineProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const { allEvents, togetherPeriods, gaps, profiles, loading, deleteEvents, updateEventNote } =
+  const { allEvents, togetherPeriods, gaps, profiles, tripNotes, loading, deleteEvents, updateEventNote, updateTripNote } =
     useGroupTimeline({ userId, showPast });
 
   const myProfile = profiles[userId];
@@ -559,6 +652,8 @@ export function Timeline({ userId }: TimelineProps) {
           selected={selected}
           onToggleSelect={toggleSelect}
           onUpdateNote={mode === "view" ? updateEventNote : undefined}
+          tripNote={tripNotes.get(tripSignature(trip))?.content}
+          onUpdateTripNote={mode === "view" ? (note) => updateTripNote(tripSignature(trip), note) : undefined}
         />
       ))}
 

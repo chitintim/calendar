@@ -131,7 +131,7 @@ export function Chat({ userId }: ChatProps) {
   }
 
   return (
-    <div className="flex flex-col -mx-4 -mt-4 md:-mt-6" style={{ height: "calc(100vh - 3rem - 3.5rem)" }}>
+    <div className="fixed inset-0 top-12 md:top-14 bottom-14 md:bottom-0 flex flex-col bg-white z-10">
       {/* Group picker (only if multiple groups) */}
       {groups.length > 1 && (
         <div className="px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">
@@ -266,7 +266,7 @@ export function Chat({ userId }: ChatProps) {
       {selectedGroupId && (
         <form
           onSubmit={handleSend}
-          className="flex-shrink-0 px-4 py-3 border-t border-gray-200 bg-white pb-16 md:pb-3"
+          className="flex-shrink-0 px-4 py-3 border-t border-gray-200 bg-white"
         >
           <div className="flex gap-2">
             <input

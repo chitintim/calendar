@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useNextEvent } from "@/hooks/useEvents";
+import { useMemo, useCallback } from "react";
+import { useEvents } from "@/hooks/useEvents";
 import { useProfile } from "@/hooks/useProfile";
 import { useCountdown } from "@/hooks/useCountdown";
 import { useGroupTimeline } from "@/hooks/useGroupTimeline";
@@ -7,6 +7,7 @@ import { EventCard } from "@/components/EventCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar } from "@/components/Avatar";
 import { getEventIcon } from "@/lib/eventIcons";
+import type { CalendarEvent } from "@/lib/types";
 import {
   formatEventTime,
   getUrgencyStatus,
@@ -17,16 +18,57 @@ interface DashboardProps {
   userId: string;
 }
 
+// Helper: is an event happening today (in its local timezone)?
+function isToday(event: CalendarEvent): boolean {
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0];
+  const eventStartDay = event.start_at.split("T")[0];
+  const eventEndDay = event.end_at.split("T")[0];
+  // Event spans today if it starts today, or started before today and ends today or later
+  return eventStartDay === todayStr || (eventStartDay! <= todayStr! && eventEndDay! >= todayStr!);
+}
+
+// Helper: is an event currently in progress?
+function isInProgress(event: CalendarEvent): boolean {
+  const now = new Date();
+  return new Date(event.start_at) <= now && new Date(event.end_at) > now;
+}
+
 export function Dashboard({ userId }: DashboardProps) {
   const { profile } = useProfile(userId);
-  const { events: nextEvents, loading } = useNextEvent(userId);
-  const nextEvent = nextEvents[0] ?? null;
-
-  const { allEvents, togetherPeriods, partnerEvents, profiles } = useGroupTimeline({
+  const { events: myUpcomingEvents, loading } = useEvents({
     userId,
+    futureOnly: false,
+    limit: 20,
   });
 
-  // Find the next future together period
+  const { allEvents, togetherPeriods, partnerEvents, profiles } =
+    useGroupTimeline({ userId });
+
+  // --- My events: today + next upcoming ---
+  const { nextEvent, laterToday } = useMemo(() => {
+    const now = new Date();
+    // Get events that are relevant today (in progress or starting today)
+    const today = myUpcomingEvents.filter(
+      (e) => isToday(e) || isInProgress(e)
+    );
+    // Next future event (first one starting after now)
+    const next = myUpcomingEvents.find(
+      (e) => new Date(e.start_at) > now
+    ) ?? null;
+    // Events later today (future events today, excluding the very next one)
+    const later = today.filter(
+      (e) => new Date(e.start_at) > now && e.id !== next?.id
+    );
+    return { nextEvent: next, laterToday: later };
+  }, [myUpcomingEvents]);
+
+  // Current in-progress event (am I on a flight, at a hotel, etc.?)
+  const currentEvent = useMemo(() => {
+    return myUpcomingEvents.find((e) => isInProgress(e)) ?? null;
+  }, [myUpcomingEvents]);
+
+  // Together periods
   const nextTogether = useMemo(() => {
     const now = new Date();
     return togetherPeriods.find((p) => p.endAt > now) ?? null;
@@ -38,119 +80,17 @@ export function Dashboard({ userId }: DashboardProps) {
       : null
   );
 
-  // Currently together?
   const isCurrentlyTogether = useMemo(() => {
     if (!nextTogether) return false;
     const now = new Date();
     return nextTogether.startAt <= now && nextTogether.endAt > now;
   }, [nextTogether]);
 
-  // Time remaining together
   const togetherRemainingText = useCountdown(
     isCurrentlyTogether ? nextTogether!.endAt : null
   );
 
-  // Partner's next event
-  const partnerNextEvent = useMemo(() => {
-    const now = new Date();
-    return (
-      partnerEvents.find((e) => new Date(e.start_at) > now) ?? null
-    );
-  }, [partnerEvents]);
-
-  // Find any partner user ID (from next event, or from any partner event)
-  const partnerUserId = useMemo(() => {
-    if (partnerNextEvent) return partnerNextEvent.user_id;
-    if (partnerEvents.length > 0) return partnerEvents[0]!.user_id;
-    return null;
-  }, [partnerNextEvent, partnerEvents]);
-
-  const partnerProfile = useMemo(() => {
-    if (!partnerUserId) return null;
-    return profiles[partnerUserId] ?? null;
-  }, [partnerUserId, profiles]);
-
-  // Next event details
-  const mustLeaveTime = nextEvent ? getMustLeaveTime(nextEvent) : null;
-  const urgency = nextEvent ? getUrgencyStatus(nextEvent) : null;
-  const countdownText = useCountdown(
-    nextEvent ? new Date(nextEvent.start_at) : null
-  );
-  const leaveCountdownText = useCountdown(mustLeaveTime);
-
-  // Is urgency high enough to take over the hero?
-  const isUrgentHero = urgency === "amber" || urgency === "red";
-
-  // Partner status: derive from their events
-  const partnerStatus = useMemo(() => {
-    if (!partnerUserId) return null;
-    const pProfile = profiles[partnerUserId];
-    const pName = pProfile?.display_name ?? "Partner";
-    const pHomeCity = pProfile?.base_city ?? null;
-    const now = new Date();
-
-    // Get ALL partner events (not just next future one)
-    const pId = partnerUserId;
-    const pAllEvents = partnerEvents
-      .filter((e) => e.user_id === pId)
-      .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
-
-    // Check if partner is currently mid-event (in transit, at hotel, etc.)
-    for (const ev of pAllEvents) {
-      const start = new Date(ev.start_at);
-      const end = new Date(ev.end_at);
-      if (start <= now && end > now) {
-        // Currently mid-event
-        const minsLeft = Math.round((end.getTime() - now.getTime()) / 60000);
-        const hoursLeft = Math.floor(minsLeft / 60);
-        const remainStr = hoursLeft > 0 ? `${hoursLeft}h ${minsLeft % 60}m` : `${minsLeft}m`;
-
-        if (ev.event_type === "flight") {
-          const dest = ev.end_location || ev.location || "";
-          return { emoji: "✈️", text: `En route${dest ? ` to ${dest}` : ""}`, sub: `Landing in ${remainStr}`, name: pName };
-        }
-        if (ev.event_type === "train") {
-          const dest = ev.end_location || "";
-          return { emoji: "🚆", text: `On a train${dest ? ` to ${dest}` : ""}`, sub: `Arriving in ${remainStr}`, name: pName };
-        }
-        if (ev.event_type === "hotel") {
-          return { emoji: "🏨", text: `At ${ev.title}`, sub: ev.location ?? undefined, name: pName };
-        }
-        if (ev.event_type === "activity" || ev.event_type === "restaurant") {
-          return { emoji: ev.event_type === "restaurant" ? "🍽️" : "🎯", text: ev.title, sub: ev.location ?? undefined, name: pName };
-        }
-        // Generic in-progress
-        return { emoji: "📍", text: ev.title, sub: `Ends in ${remainStr}`, name: pName };
-      }
-    }
-
-    // Not mid-event — figure out where they are based on most recent past event
-    const pastEvents = pAllEvents.filter((e) => new Date(e.end_at) <= now);
-    if (pastEvents.length > 0) {
-      const lastEvent = pastEvents[pastEvents.length - 1]!;
-      const arrivalCity = lastEvent.end_location
-        ? lastEvent.end_location
-        : lastEvent.location;
-      if (arrivalCity) {
-        const isHome = pHomeCity && arrivalCity.toLowerCase().includes(pHomeCity.toLowerCase());
-        return {
-          emoji: isHome ? "🏠" : "📍",
-          text: isHome ? `Home in ${pHomeCity}` : `In ${arrivalCity}`,
-          sub: undefined,
-          name: pName,
-        };
-      }
-    }
-
-    // Fallback: assume home
-    if (pHomeCity) {
-      return { emoji: "🏠", text: `Home in ${pHomeCity}`, sub: undefined, name: pName };
-    }
-
-    return null;
-  }, [partnerUserId, partnerEvents, profiles]);
-
-  // Events happening during current together period
+  // Together upcoming events
   const togetherUpcoming = useMemo(() => {
     if (!isCurrentlyTogether || !nextTogether) return [];
     const now = new Date();
@@ -159,8 +99,145 @@ export function Dashboard({ userId }: DashboardProps) {
         const start = new Date(e.start_at);
         return start > now && start < nextTogether.endAt;
       })
-      .slice(0, 5); // cap at 5 events
+      .slice(0, 5);
   }, [isCurrentlyTogether, nextTogether, allEvents]);
+
+  // Partner
+  const partnerUserId = useMemo(() => {
+    if (partnerEvents.length > 0) return partnerEvents[0]!.user_id;
+    return null;
+  }, [partnerEvents]);
+
+  const partnerProfile = useMemo(() => {
+    if (!partnerUserId) return null;
+    return profiles[partnerUserId] ?? null;
+  }, [partnerUserId, profiles]);
+
+  const partnerStatus = useMemo(() => {
+    if (!partnerUserId) return null;
+    const pProfile = profiles[partnerUserId];
+    const pName = pProfile?.display_name ?? "Partner";
+    const pHomeCity = pProfile?.base_city ?? null;
+    const now = new Date();
+
+    const pAllEvents = partnerEvents
+      .filter((e) => e.user_id === partnerUserId)
+      .sort(
+        (a, b) =>
+          new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+      );
+
+    for (const ev of pAllEvents) {
+      const start = new Date(ev.start_at);
+      const end = new Date(ev.end_at);
+      if (start <= now && end > now) {
+        const minsLeft = Math.round(
+          (end.getTime() - now.getTime()) / 60000
+        );
+        const hoursLeft = Math.floor(minsLeft / 60);
+        const remainStr =
+          hoursLeft > 0
+            ? `${hoursLeft}h ${minsLeft % 60}m`
+            : `${minsLeft}m`;
+
+        if (ev.event_type === "flight") {
+          const dest = ev.end_location || ev.location || "";
+          return {
+            emoji: "\u2708\uFE0F",
+            text: `En route${dest ? ` to ${dest}` : ""}`,
+            sub: `Landing in ${remainStr}`,
+            name: pName,
+          };
+        }
+        if (ev.event_type === "train") {
+          const dest = ev.end_location || "";
+          return {
+            emoji: "\uD83D\uDE86",
+            text: `On a train${dest ? ` to ${dest}` : ""}`,
+            sub: `Arriving in ${remainStr}`,
+            name: pName,
+          };
+        }
+        if (ev.event_type === "hotel") {
+          return {
+            emoji: "\uD83C\uDFE8",
+            text: `At ${ev.title}`,
+            sub: ev.location ?? undefined,
+            name: pName,
+          };
+        }
+        if (
+          ev.event_type === "activity" ||
+          ev.event_type === "restaurant"
+        ) {
+          return {
+            emoji:
+              ev.event_type === "restaurant" ? "\uD83C\uDF7D\uFE0F" : "\uD83C\uDFAF",
+            text: ev.title,
+            sub: ev.location ?? undefined,
+            name: pName,
+          };
+        }
+        return {
+          emoji: "\uD83D\uDCCD",
+          text: ev.title,
+          sub: `Ends in ${remainStr}`,
+          name: pName,
+        };
+      }
+    }
+
+    const pastEvents = pAllEvents.filter(
+      (e) => new Date(e.end_at) <= now
+    );
+    if (pastEvents.length > 0) {
+      const lastEvent = pastEvents[pastEvents.length - 1]!;
+      const arrivalCity = lastEvent.end_location
+        ? lastEvent.end_location
+        : lastEvent.location;
+      if (arrivalCity) {
+        const isHome =
+          pHomeCity &&
+          arrivalCity.toLowerCase().includes(pHomeCity.toLowerCase());
+        return {
+          emoji: isHome ? "\uD83C\uDFE0" : "\uD83D\uDCCD",
+          text: isHome ? `Home in ${pHomeCity}` : `In ${arrivalCity}`,
+          sub: undefined,
+          name: pName,
+        };
+      }
+    }
+
+    if (pHomeCity) {
+      return {
+        emoji: "\uD83C\uDFE0",
+        text: `Home in ${pHomeCity}`,
+        sub: undefined,
+        name: pName,
+      };
+    }
+
+    return null;
+  }, [partnerUserId, partnerEvents, profiles]);
+
+  const partnerNextEvent = useMemo(() => {
+    const now = new Date();
+    return partnerEvents.find((e) => new Date(e.start_at) > now) ?? null;
+  }, [partnerEvents]);
+
+  // Next event urgency
+  const mustLeaveTime = nextEvent ? getMustLeaveTime(nextEvent) : null;
+  const urgency = nextEvent ? getUrgencyStatus(nextEvent) : null;
+  const countdownText = useCountdown(
+    nextEvent ? new Date(nextEvent.start_at) : null
+  );
+  const leaveCountdownText = useCountdown(mustLeaveTime);
+  const isUrgentHero = urgency === "amber" || urgency === "red";
+
+  // Copy to clipboard helper
+  const copyRef = useCallback((ref: string) => {
+    navigator.clipboard.writeText(ref);
+  }, []);
 
   if (loading) {
     return (
@@ -186,7 +263,9 @@ export function Dashboard({ userId }: DashboardProps) {
         )}
       </div>
 
-      {/* URGENCY HERO — when leave-by is amber/red, this takes the top spot */}
+      {/* ============================================================
+          1. URGENCY HERO — when you need to leave NOW
+          ============================================================ */}
       {isUrgentHero && nextEvent && mustLeaveTime && (
         <div
           className={`rounded-2xl border shadow-sm overflow-hidden ${
@@ -224,7 +303,6 @@ export function Dashboard({ userId }: DashboardProps) {
             )}
           </div>
 
-          {/* Quick-glance details: terminal, gate, ref */}
           <div
             className={`px-4 py-2.5 border-t flex flex-wrap gap-2 text-xs ${
               urgency === "red"
@@ -245,19 +323,26 @@ export function Dashboard({ userId }: DashboardProps) {
             )}
             {nextEvent.booking_reference && (
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(nextEvent.booking_reference!)
-                }
+                onClick={() => copyRef(nextEvent.booking_reference!)}
                 className="px-1.5 py-0.5 rounded bg-white/60 font-mono font-medium hover:bg-white/80 transition-colors"
               >
-                {nextEvent.booking_reference} 📋
+                {nextEvent.booking_reference} {"\uD83D\uDCCB"}
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* Together countdown / status — THE emotional hero (demoted if urgency is active) */}
+      {/* ============================================================
+          2. CURRENTLY IN PROGRESS — "You're on BA245 to London"
+          ============================================================ */}
+      {currentEvent && !isUrgentHero && (
+        <CurrentEventCard event={currentEvent} onCopyRef={copyRef} />
+      )}
+
+      {/* ============================================================
+          3. TOGETHER STATUS
+          ============================================================ */}
       {nextTogether && (
         <div className="bg-gradient-to-r from-rose-50 to-pink-50 rounded-2xl border border-rose-200 shadow-sm p-4">
           {isCurrentlyTogether ? (
@@ -276,15 +361,16 @@ export function Dashboard({ userId }: DashboardProps) {
               <p className="text-rose-500 text-sm mt-1">
                 {nextTogether.users.join(" & ")}
               </p>
-
-              {/* Upcoming plans during this visit */}
               {togetherUpcoming.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-rose-200/50 space-y-1.5">
                   <p className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
                     Coming up this visit
                   </p>
                   {togetherUpcoming.map((ev) => (
-                    <div key={ev.id} className="flex items-center gap-2 text-sm text-rose-700">
+                    <div
+                      key={ev.id}
+                      className="flex items-center gap-2 text-sm text-rose-700"
+                    >
                       <span className="text-base flex-shrink-0">
                         {getEventIcon(ev.event_type)}
                       </span>
@@ -318,10 +404,11 @@ export function Dashboard({ userId }: DashboardProps) {
         </div>
       )}
 
-      {/* Next event — merged compact card with countdown (skip urgency banner if already shown as hero) */}
+      {/* ============================================================
+          4. NEXT EVENT — "What's my next move?"
+          ============================================================ */}
       {nextEvent ? (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          {/* Top section: countdown + urgency */}
           <div className="px-4 py-3 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
@@ -336,7 +423,9 @@ export function Dashboard({ userId }: DashboardProps) {
             )}
           </div>
 
-          {/* Event as collapsible card (inline, no extra border) */}
+          {/* Quick-access strip: booking ref, terminal, gate, address */}
+          <QuickAccessStrip event={nextEvent} onCopyRef={copyRef} />
+
           <div className="border-t border-gray-100">
             <EventCard
               event={nextEvent}
@@ -345,19 +434,21 @@ export function Dashboard({ userId }: DashboardProps) {
             />
           </div>
 
-          {/* Leave-by (only if NOT shown as urgency hero, and within actionable range) */}
-          {!isUrgentHero && mustLeaveTime && urgency && urgency !== "past" && (
-            <div className="px-4 py-2.5 border-t text-sm bg-gray-50 border-gray-100 text-gray-600">
-              <span className="font-medium">
-                Leave in {leaveCountdownText}
-              </span>
-              {nextEvent.leave_by_note && (
-                <span className="text-xs ml-2 opacity-75">
-                  {nextEvent.leave_by_note}
+          {!isUrgentHero &&
+            mustLeaveTime &&
+            urgency &&
+            urgency !== "past" && (
+              <div className="px-4 py-2.5 border-t text-sm bg-gray-50 border-gray-100 text-gray-600">
+                <span className="font-medium">
+                  Leave in {leaveCountdownText}
                 </span>
-              )}
-            </div>
-          )}
+                {nextEvent.leave_by_note && (
+                  <span className="text-xs ml-2 opacity-75">
+                    {nextEvent.leave_by_note}
+                  </span>
+                )}
+              </div>
+            )}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center">
@@ -371,7 +462,27 @@ export function Dashboard({ userId }: DashboardProps) {
         </div>
       )}
 
-      {/* Partner status + next event */}
+      {/* ============================================================
+          5. LATER TODAY — rest of today's schedule
+          ============================================================ */}
+      {laterToday.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-100">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+              Later today
+            </p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {laterToday.map((ev) => (
+              <TodayEventRow key={ev.id} event={ev} onCopyRef={copyRef} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          6. PARTNER STATUS
+          ============================================================ */}
       {partnerProfile && (
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -390,7 +501,7 @@ export function Dashboard({ userId }: DashboardProps) {
                   {partnerStatus.emoji} {partnerStatus.text}
                   {partnerStatus.sub && (
                     <span className="text-gray-400 text-xs ml-1">
-                      · {partnerStatus.sub}
+                      {"\u00B7"} {partnerStatus.sub}
                     </span>
                   )}
                 </p>
@@ -399,6 +510,188 @@ export function Dashboard({ userId }: DashboardProps) {
           </div>
           {partnerNextEvent && <EventCard event={partnerNextEvent} />}
         </div>
+      )}
+    </div>
+  );
+}
+
+// --- Sub-components ---
+
+/** Shows a prominent card for an event currently in progress */
+function CurrentEventCard({
+  event,
+  onCopyRef,
+}: {
+  event: CalendarEvent;
+  onCopyRef: (ref: string) => void;
+}) {
+  const now = new Date();
+  const end = new Date(event.end_at);
+  const minsLeft = Math.round((end.getTime() - now.getTime()) / 60000);
+  const hoursLeft = Math.floor(minsLeft / 60);
+  const remainStr =
+    hoursLeft > 0 ? `${hoursLeft}h ${minsLeft % 60}m` : `${minsLeft}m`;
+
+  const icon = getEventIcon(event.event_type);
+  const isTransit = ["flight", "train", "ferry", "bus", "transfer"].includes(
+    event.event_type
+  );
+  const destination = event.end_location || event.location || "";
+
+  return (
+    <div className="bg-gradient-to-r from-brand-50 to-blue-50 rounded-2xl border border-brand-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3">
+        <p className="text-[10px] font-bold text-brand-400 uppercase tracking-wider mb-1">
+          Right now
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">{icon}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-bold text-gray-900 truncate">
+              {event.title}
+            </p>
+            {isTransit && destination && (
+              <p className="text-sm text-brand-600">
+                {event.event_type === "flight" ? "Landing" : "Arriving"} in{" "}
+                {destination} {"\u00B7"} {remainStr} left
+              </p>
+            )}
+            {!isTransit && (
+              <p className="text-sm text-brand-600">
+                {event.location && <span>{event.location} {"\u00B7"} </span>}
+                {remainStr} remaining
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick-access details */}
+      {(event.booking_reference ||
+        event.terminal ||
+        event.gate ||
+        event.address) && (
+        <div className="px-4 py-2 border-t border-brand-200/50 flex flex-wrap gap-2 text-xs text-brand-700">
+          {event.booking_reference && (
+            <button
+              onClick={() => onCopyRef(event.booking_reference!)}
+              className="px-2 py-1 rounded-md bg-white/70 font-mono font-semibold hover:bg-white transition-colors"
+            >
+              Ref: {event.booking_reference} {"\uD83D\uDCCB"}
+            </button>
+          )}
+          {event.terminal && (
+            <span className="px-2 py-1 rounded-md bg-white/70 font-semibold">
+              Terminal {event.terminal}
+            </span>
+          )}
+          {event.gate && (
+            <span className="px-2 py-1 rounded-md bg-white/70 font-semibold">
+              Gate {event.gate}
+            </span>
+          )}
+          {event.address && (
+            <a
+              href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-1 rounded-md bg-white/70 font-medium hover:bg-white transition-colors underline"
+            >
+              {"\uD83D\uDDFA\uFE0F"} Navigate
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Quick-access strip showing booking ref, terminal, gate, address for an event */
+function QuickAccessStrip({
+  event,
+  onCopyRef,
+}: {
+  event: CalendarEvent;
+  onCopyRef: (ref: string) => void;
+}) {
+  const hasInfo =
+    event.booking_reference ||
+    event.terminal ||
+    event.gate ||
+    event.address;
+
+  if (!hasInfo) return null;
+
+  return (
+    <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex flex-wrap gap-2 text-xs text-gray-600">
+      {event.booking_reference && (
+        <button
+          onClick={() => onCopyRef(event.booking_reference!)}
+          className="px-2 py-1 rounded-md bg-white border border-gray-200 font-mono font-semibold hover:bg-gray-50 transition-colors"
+        >
+          {event.booking_reference} {"\uD83D\uDCCB"}
+        </button>
+      )}
+      {event.terminal && (
+        <span className="px-2 py-1 rounded-md bg-white border border-gray-200 font-semibold">
+          Terminal {event.terminal}
+        </span>
+      )}
+      {event.gate && (
+        <span className="px-2 py-1 rounded-md bg-white border border-gray-200 font-semibold">
+          Gate {event.gate}
+        </span>
+      )}
+      {event.address && (
+        <a
+          href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2 py-1 rounded-md bg-white border border-gray-200 font-medium hover:bg-gray-50 transition-colors underline"
+        >
+          {"\uD83D\uDDFA\uFE0F"} Map
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** Compact row for a "later today" event — shows time, icon, title, and tap-to-copy ref */
+function TodayEventRow({
+  event,
+  onCopyRef,
+}: {
+  event: CalendarEvent;
+  onCopyRef: (ref: string) => void;
+}) {
+  const time = formatEventTime(event.start_at, event.start_timezone);
+  const icon = getEventIcon(event.event_type);
+  const destination =
+    event.event_type === "flight" || event.event_type === "train"
+      ? event.end_location || event.location
+      : event.location;
+
+  return (
+    <div className="px-4 py-2.5 flex items-center gap-3">
+      <span className="text-xs font-mono text-gray-400 w-10 flex-shrink-0">
+        {time}
+      </span>
+      <span className="text-base flex-shrink-0">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">
+          {event.title}
+        </p>
+        {destination && (
+          <p className="text-xs text-gray-400 truncate">{destination}</p>
+        )}
+      </div>
+      {event.booking_reference && (
+        <button
+          onClick={() => onCopyRef(event.booking_reference!)}
+          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 font-mono text-gray-500 hover:bg-gray-200 transition-colors flex-shrink-0"
+        >
+          {event.booking_reference}
+        </button>
       )}
     </div>
   );

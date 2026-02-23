@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { useChat } from "@/hooks/useChat";
 import { useGroups } from "@/hooks/useGroups";
 import { supabase } from "@/lib/supabase";
@@ -179,17 +180,19 @@ export function Chat({ userId }: ChatProps) {
             <span className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 text-sm">
               AI
             </span>
-            <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-gray-100 text-gray-800 text-sm whitespace-pre-wrap">
-              {streamingContent || (
+            <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-gray-100 text-gray-800 text-sm prose prose-sm prose-gray max-w-none">
+              {streamingContent ? (
+                <>
+                  <ReactMarkdown>{streamingContent}</ReactMarkdown>
+                  <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+                </>
+              ) : (
                 <span className="inline-flex gap-1 text-gray-400">
                   <span className="animate-pulse">Thinking</span>
                   <span className="animate-bounce" style={{ animationDelay: "0.1s" }}>.</span>
                   <span className="animate-bounce" style={{ animationDelay: "0.2s" }}>.</span>
                   <span className="animate-bounce" style={{ animationDelay: "0.3s" }}>.</span>
                 </span>
-              )}
-              {streamingContent && (
-                <span className="inline-block w-0.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
               )}
             </div>
           </div>
@@ -297,8 +300,8 @@ function MessageBubble({
         <span className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">
           AI
         </span>
-        <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-gray-100 text-gray-800 text-sm whitespace-pre-wrap">
-          {message.content}
+        <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-gray-100 text-gray-800 text-sm prose prose-sm prose-gray max-w-none">
+          <ReactMarkdown>{message.content}</ReactMarkdown>
         </div>
       </div>
     );

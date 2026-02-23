@@ -56,6 +56,15 @@ export function useChat(groupId: string | null, userId: string | undefined) {
           setMessages((prev) => {
             // Deduplicate — may already have been added by the sender
             if (prev.some((m) => m.id === newMsg.id)) return prev;
+            // Replace local placeholder AI message with the real DB row
+            const localPlaceholderIdx = newMsg.role === "assistant"
+              ? prev.findIndex((m) => m.id.startsWith("local-ai-") && m.content === newMsg.content)
+              : -1;
+            if (localPlaceholderIdx >= 0) {
+              const updated = [...prev];
+              updated[localPlaceholderIdx] = newMsg;
+              return updated;
+            }
             return [...prev, newMsg];
           });
         },
@@ -168,9 +177,20 @@ export function useChat(groupId: string | null, userId: string | undefined) {
                 setStreamingContent(accumulated);
               }
 
-              if (parsed.done) {
-                // Stream finished — the AI message was saved by the edge function
-                // and will arrive via Realtime INSERT
+              if (parsed.done && accumulated.trim()) {
+                // Add AI message to local state immediately so it doesn't
+                // disappear between stream end and Realtime delivery.
+                // Realtime INSERT will deduplicate via the id check.
+                const localAiMsg: ChatMessage = {
+                  id: `local-ai-${Date.now()}`,
+                  group_id: groupId!,
+                  user_id: null,
+                  role: "assistant",
+                  content: accumulated.trim(),
+                  metadata: {},
+                  created_at: new Date().toISOString(),
+                };
+                setMessages((prev) => [...prev, localAiMsg]);
               }
             } catch {
               // Skip unparseable

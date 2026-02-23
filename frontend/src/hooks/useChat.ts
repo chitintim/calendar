@@ -212,6 +212,22 @@ export function useChat(groupId: string | null, userId: string | undefined) {
     [groupId, userId],
   );
 
+  // Clear all messages for this group
+  const clearChat = useCallback(async () => {
+    if (!groupId) return;
+
+    const { error: deleteErr } = await supabase
+      .from("chat_messages")
+      .delete()
+      .eq("group_id", groupId);
+
+    if (deleteErr) {
+      setError(deleteErr.message);
+    } else {
+      setMessages([]);
+    }
+  }, [groupId]);
+
   return {
     messages,
     loading,
@@ -219,6 +235,7 @@ export function useChat(groupId: string | null, userId: string | undefined) {
     streamingContent,
     error,
     sendMessage,
+    clearChat,
     clearError: () => setError(null),
   };
 }

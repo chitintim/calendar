@@ -23,6 +23,7 @@ export function Chat({ userId }: ChatProps) {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
   const [input, setInput] = useState("");
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -40,8 +41,14 @@ export function Chat({ userId }: ChatProps) {
     streamingContent,
     error,
     sendMessage,
+    clearChat,
     clearError,
   } = useChat(selectedGroupId, userId);
+
+  const handleClearChat = useCallback(async () => {
+    await clearChat();
+    setShowClearConfirm(false);
+  }, [clearChat]);
 
   // Fetch profiles for the selected group
   useEffect(() => {
@@ -140,6 +147,47 @@ export function Chat({ userId }: ChatProps) {
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {/* Chat header with clear button */}
+      {selectedGroupId && messages.length > 0 && !chatLoading && (
+        <div className="px-4 py-1.5 border-b border-gray-100 bg-white flex-shrink-0 flex justify-end">
+          <button
+            onClick={() => setShowClearConfirm(true)}
+            disabled={sending}
+            className="text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+          >
+            Clear chat
+          </button>
+        </div>
+      )}
+
+      {/* Clear confirmation dialog */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-xs w-full p-5 text-center">
+            <p className="text-sm font-semibold text-gray-800 mb-1">
+              Clear conversation?
+            </p>
+            <p className="text-xs text-gray-500 mb-4">
+              This will delete all messages in this chat for everyone in the group. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearChat}
+                className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm text-white font-medium hover:bg-red-700 transition-colors"
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

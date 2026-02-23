@@ -30,6 +30,47 @@ interface ChatHistoryMessage {
 }
 
 /**
+ * Rough token estimate: ~4 characters per token on average for English text.
+ * This is intentionally conservative (overestimates) to stay safely within limits.
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
+
+// Token budget for chat history messages.
+// System prompt (~500 tokens) + group context (~3,000 tokens) are cached separately.
+// Sonnet has 200K context but we keep message costs low.
+const MESSAGE_TOKEN_BUDGET = 8000;
+
+/**
+ * Trim messages from the oldest end to fit within the token budget.
+ * Always keeps at least the most recent message.
+ */
+function trimToTokenBudget(
+  messages: { role: "user" | "assistant"; content: string }[],
+  budget: number,
+): { role: "user" | "assistant"; content: string }[] {
+  // Calculate total tokens
+  let totalTokens = 0;
+  const tokenCounts = messages.map((m) => {
+    const count = estimateTokens(m.content);
+    totalTokens += count;
+    return count;
+  });
+
+  if (totalTokens <= budget) return messages;
+
+  // Drop oldest messages until we fit the budget
+  let startIdx = 0;
+  while (startIdx < messages.length - 1 && totalTokens > budget) {
+    totalTokens -= tokenCounts[startIdx]!;
+    startIdx++;
+  }
+
+  return messages.slice(startIdx);
+}
+
+/**
  * Call the Anthropic Messages API with streaming enabled and prompt caching.
  * Returns the raw Response object (SSE stream) for the caller to pipe through.
  */
@@ -63,9 +104,12 @@ export async function callAnthropicStream(
     }
   }
 
+  // Trim messages to fit within token budget (drops oldest first)
+  const trimmedMessages = trimToTokenBudget(mergedMessages, MESSAGE_TOKEN_BUDGET);
+
   // Ensure conversation starts with a user message
-  if (mergedMessages.length === 0 || mergedMessages[0].role !== "user") {
-    mergedMessages.unshift({ role: "user", content: "(new conversation)" });
+  if (trimmedMessages.length === 0 || trimmedMessages[0].role !== "user") {
+    trimmedMessages.unshift({ role: "user", content: "(new conversation)" });
   }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -91,7 +135,7 @@ export async function callAnthropicStream(
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: mergedMessages,
+      messages: trimmedMessages,
     }),
   });
 

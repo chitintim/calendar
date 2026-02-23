@@ -94,12 +94,15 @@ export function useProfile(userId: string | undefined) {
     async () => {
       if (!userId || !profile?.avatar_url) return { error: new Error("No avatar") };
 
-      // Delete from storage
-      const { error: deleteError } = await supabase.storage
-        .from("avatars")
-        .remove([profile.avatar_url]);
-
-      if (deleteError) return { error: deleteError };
+      // Delete from storage — ignore errors since the file may already be gone
+      try {
+        await supabase.storage
+          .from("avatars")
+          .remove([profile.avatar_url]);
+      } catch {
+        // Storage delete can throw TypeError: Failed to fetch on network issues.
+        // Continue to clear the profile reference regardless.
+      }
 
       // Clear from profile
       const { error: updateError } = await supabase

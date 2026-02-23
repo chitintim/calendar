@@ -122,6 +122,7 @@ interface TripSectionProps {
   mode: TimelineMode;
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
+  onUpdateNote?: (eventId: string, note: string) => Promise<void>;
 }
 
 function TripSection({
@@ -133,6 +134,7 @@ function TripSection({
   mode,
   selected,
   onToggleSelect,
+  onUpdateNote,
 }: TripSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const dateRange = formatTripDateRange(trip.startDate, trip.endDate);
@@ -209,6 +211,7 @@ function TripSection({
                         ownerInitial={ownerProps?.ownerInitial}
                         ownerColor={ownerProps?.ownerColor}
                         ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
+                        onUpdateNote={mode === "view" && item.event.user_id === userId ? onUpdateNote : undefined}
                       />
                     </div>
                   );
@@ -256,7 +259,7 @@ export function Timeline({ userId }: TimelineProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const { allEvents, togetherPeriods, gaps, profiles, loading, deleteEvents } =
+  const { allEvents, togetherPeriods, gaps, profiles, loading, deleteEvents, updateEventNote } =
     useGroupTimeline({ userId, showPast });
 
   const myProfile = profiles[userId];
@@ -555,6 +558,7 @@ export function Timeline({ userId }: TimelineProps) {
           mode={mode}
           selected={selected}
           onToggleSelect={toggleSelect}
+          onUpdateNote={mode === "view" ? updateEventNote : undefined}
         />
       ))}
 
@@ -603,6 +607,7 @@ export function Timeline({ userId }: TimelineProps) {
                       ownerInitial={ownerProps?.ownerInitial}
                       ownerColor={ownerProps?.ownerColor}
                       ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
+                      onUpdateNote={mode === "view" && item.event.user_id === userId ? updateEventNote : undefined}
                     />
                   </div>
                 );

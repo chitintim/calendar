@@ -143,6 +143,29 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
     [fetchData]
   );
 
+  // Update event note (optimistic update + persist)
+  const updateEventNote = useCallback(
+    async (eventId: string, note: string) => {
+      // Optimistic: update local state immediately
+      setAllEvents((prev) =>
+        prev.map((e) =>
+          e.id === eventId ? { ...e, notes: note || null } : e
+        )
+      );
+
+      const { error: updateErr } = await supabase
+        .from("events")
+        .update({ notes: note || null })
+        .eq("id", eventId);
+
+      if (updateErr) {
+        console.error("Failed to update note:", updateErr);
+        await fetchData(); // Revert on error
+      }
+    },
+    [fetchData]
+  );
+
   return {
     allEvents,
     myEvents,
@@ -153,6 +176,7 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
     loading,
     error,
     deleteEvents,
+    updateEventNote,
     refetch: fetchData,
   };
 }

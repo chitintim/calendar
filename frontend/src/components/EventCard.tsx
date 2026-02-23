@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { CalendarEvent } from "@/lib/types";
 import { getEventIcon, getEventTypeName } from "@/lib/eventIcons";
 import {
@@ -26,6 +26,8 @@ interface EventCardProps {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
+  // Note editing
+  onUpdateNote?: (eventId: string, note: string) => Promise<void>;
 }
 
 export function EventCard({
@@ -39,8 +41,13 @@ export function EventCard({
   selectable = false,
   selected = false,
   onToggleSelect,
+  onUpdateNote,
 }: EventCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState(event.notes ?? "");
+  const [savingNote, setSavingNote] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const urgency = getUrgencyStatus(event);
   const mustLeaveTime = getMustLeaveTime(event);
@@ -62,6 +69,7 @@ export function EventCard({
     event.address ||
     event.notes ||
     event.passenger_names?.length ||
+    onUpdateNote ||
     (mustLeaveFormatted && urgency && urgency !== "past")
   );
 
@@ -74,6 +82,37 @@ export function EventCard({
       setExpanded((prev) => !prev);
     }
   }, [selectable, onToggleSelect, event.id, hasDetails]);
+
+  // Keep noteText in sync with event.notes when it changes externally (e.g., AI update)
+  useEffect(() => {
+    if (!editingNote) setNoteText(event.notes ?? "");
+  }, [event.notes, editingNote]);
+
+  const handleStartEditNote = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!onUpdateNote) return;
+      setNoteText(event.notes ?? "");
+      setEditingNote(true);
+      // Focus the textarea on next render
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    },
+    [onUpdateNote, event.notes]
+  );
+
+  const handleSaveNote = useCallback(async () => {
+    if (!onUpdateNote) return;
+    const trimmed = noteText.trim();
+    // Don't save if unchanged
+    if (trimmed === (event.notes ?? "")) {
+      setEditingNote(false);
+      return;
+    }
+    setSavingNote(true);
+    await onUpdateNote(event.id, trimmed);
+    setSavingNote(false);
+    setEditingNote(false);
+  }, [onUpdateNote, noteText, event.notes, event.id]);
 
   const handleCopyRef = useCallback(
     (e: React.MouseEvent) => {
@@ -277,10 +316,63 @@ export function EventCard({
               </div>
             )}
 
-            {/* Notes */}
-            {event.notes && (
-              <p className="text-xs text-gray-400">{event.notes}</p>
-            )}
+            {/* Notes — editable when onUpdateNote is provided */}
+            {editingNote ? (
+              <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                <textarea
+                  ref={textareaRef}
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSaveNote();
+                    }
+                    if (e.key === "Escape") {
+                      setEditingNote(false);
+                      setNoteText(event.notes ?? "");
+                    }
+                  }}
+                  placeholder="Add a note..."
+                  rows={2}
+                  className="w-full text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveNote}
+                    disabled={savingNote}
+                    className="text-[10px] px-2.5 py-1 rounded-md bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                  >
+                    {savingNote ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingNote(false);
+                      setNoteText(event.notes ?? "");
+                    }}
+                    className="text-[10px] px-2.5 py-1 rounded-md text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : event.notes ? (
+              <button
+                onClick={onUpdateNote ? handleStartEditNote : undefined}
+                className={`text-xs text-gray-400 text-left w-full ${
+                  onUpdateNote ? "hover:text-gray-600 cursor-pointer" : ""
+                }`}
+              >
+                {event.notes}
+              </button>
+            ) : onUpdateNote ? (
+              <button
+                onClick={handleStartEditNote}
+                className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+              >
+                + Add note
+              </button>
+            ) : null}
           </div>
         </div>
       </div>

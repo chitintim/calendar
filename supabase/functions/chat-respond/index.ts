@@ -133,68 +133,229 @@ Deno.serve(async (req: Request) => {
   // --- Build group context ---
   const groupContext = await buildGroupContext(serviceClient, groupId);
 
+  // --- Helper: read an Anthropic SSE stream and extract content blocks ---
+  interface ToolUseBlock {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  }
+
+  async function readAnthropicStream(
+    response: Response,
+    encoder: TextEncoder,
+    controller: ReadableStreamDefaultController,
+  ): Promise<{ text: string; toolUses: ToolUseBlock[] }> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullText = "";
+    const toolUses: ToolUseBlock[] = [];
+
+    // Track current content block for tool_use accumulation
+    let currentBlockType: string | null = null;
+    let currentToolId = "";
+    let currentToolName = "";
+    let currentToolInputJson = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(data);
+
+          // Track block starts
+          if (parsed.type === "content_block_start") {
+            if (parsed.content_block?.type === "tool_use") {
+              currentBlockType = "tool_use";
+              currentToolId = parsed.content_block.id ?? "";
+              currentToolName = parsed.content_block.name ?? "";
+              currentToolInputJson = "";
+            } else if (parsed.content_block?.type === "text") {
+              currentBlockType = "text";
+            }
+          }
+
+          // Text deltas — forward to client
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "text_delta"
+          ) {
+            const text = parsed.delta.text;
+            fullText += text;
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text })}\n\n`),
+            );
+          }
+
+          // Tool use input deltas — accumulate JSON
+          if (
+            parsed.type === "content_block_delta" &&
+            parsed.delta?.type === "input_json_delta"
+          ) {
+            currentToolInputJson += parsed.delta.partial_json ?? "";
+          }
+
+          // Block stop — finalize tool use
+          if (parsed.type === "content_block_stop" && currentBlockType === "tool_use") {
+            try {
+              const input = JSON.parse(currentToolInputJson);
+              toolUses.push({ id: currentToolId, name: currentToolName, input });
+            } catch {
+              console.error("Failed to parse tool input:", currentToolInputJson);
+            }
+            currentBlockType = null;
+          }
+
+          if (parsed.type === "error") {
+            console.error("Anthropic stream error:", parsed.error);
+          }
+        } catch {
+          // Skip unparseable lines
+        }
+      }
+    }
+
+    return { text: fullText, toolUses };
+  }
+
+  // --- Helper: execute a tool call and return result ---
+  async function executeTool(
+    tool: ToolUseBlock,
+    callerUserId: string,
+    encoder: TextEncoder,
+    controller: ReadableStreamDefaultController,
+  ): Promise<{ tool_use_id: string; content: string }> {
+    if (tool.name === "update_event_note") {
+      const { event_id, note } = tool.input as { event_id: string; note: string };
+
+      // Verify the event belongs to the calling user (security)
+      const { data: event } = await serviceClient
+        .from("events")
+        .select("id, user_id, title")
+        .eq("id", event_id)
+        .maybeSingle();
+
+      if (!event) {
+        return { tool_use_id: tool.id, content: "Error: Event not found." };
+      }
+      if (event.user_id !== callerUserId) {
+        return {
+          tool_use_id: tool.id,
+          content: "Error: You can only update notes on your own events.",
+        };
+      }
+
+      // Update the note
+      const { error: updateErr } = await serviceClient
+        .from("events")
+        .update({ notes: note || null })
+        .eq("id", event_id);
+
+      if (updateErr) {
+        console.error("Failed to update note:", updateErr);
+        return { tool_use_id: tool.id, content: `Error: ${updateErr.message}` };
+      }
+
+      // Notify the frontend so it can refresh the event card
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            note_updated: { event_id, note, event_title: event.title },
+          })}\n\n`,
+        ),
+      );
+
+      return {
+        tool_use_id: tool.id,
+        content: `Successfully saved note on "${event.title}": "${note}"`,
+      };
+    }
+
+    return { tool_use_id: tool.id, content: "Error: Unknown tool." };
+  }
+
   // --- Call Anthropic with streaming ---
   try {
-    const anthropicResponse = await callAnthropicStream(
-      anthropicApiKey,
-      groupContext,
-      chatHistory,
-      profileNames,
-    );
-
-    // We'll read the Anthropic SSE stream, extract text deltas,
-    // forward them as our own SSE stream, and accumulate the full response.
-    const reader = anthropicResponse.body!.getReader();
-    const decoder = new TextDecoder();
-    let fullContent = "";
-    let buffer = "";
-
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
 
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+          // First API call
+          const anthropicResponse = await callAnthropicStream(
+            anthropicApiKey,
+            groupContext,
+            chatHistory,
+            profileNames,
+          );
 
-            buffer += decoder.decode(value, { stream: true });
+          const { text: firstText, toolUses } = await readAnthropicStream(
+            anthropicResponse,
+            encoder,
+            controller,
+          );
 
-            // Process complete SSE lines
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? ""; // Keep incomplete line in buffer
+          let fullContent = firstText;
 
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") continue;
-
-              try {
-                const parsed = JSON.parse(data);
-
-                if (
-                  parsed.type === "content_block_delta" &&
-                  parsed.delta?.type === "text_delta"
-                ) {
-                  const text = parsed.delta.text;
-                  fullContent += text;
-                  // Forward as our own SSE event
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ text })}\n\n`),
-                  );
-                }
-
-                if (parsed.type === "message_stop") {
-                  // Stream is done
-                }
-
-                if (parsed.type === "error") {
-                  console.error("Anthropic stream error:", parsed.error);
-                }
-              } catch {
-                // Skip unparseable lines
-              }
+          // If the AI wants to use tools, execute them and make a follow-up call
+          if (toolUses.length > 0) {
+            // Execute all tool calls
+            const toolResults = [];
+            for (const tool of toolUses) {
+              const result = await executeTool(tool, user.id, encoder, controller);
+              toolResults.push(result);
             }
+
+            // Build the assistant content blocks for the multi-turn
+            const assistantContent: unknown[] = [];
+            if (firstText.trim()) {
+              assistantContent.push({ type: "text", text: firstText });
+            }
+            for (const tool of toolUses) {
+              assistantContent.push({
+                type: "tool_use",
+                id: tool.id,
+                name: tool.name,
+                input: tool.input,
+              });
+            }
+
+            // Build tool_result messages
+            const toolResultContent = toolResults.map((r) => ({
+              type: "tool_result" as const,
+              tool_use_id: r.tool_use_id,
+              content: r.content,
+            }));
+
+            // Second API call with tool results
+            const followUpResponse = await callAnthropicStream(
+              anthropicApiKey,
+              groupContext,
+              chatHistory,
+              profileNames,
+              [
+                { role: "assistant", content: assistantContent },
+                { role: "user", content: toolResultContent },
+              ],
+            );
+
+            const { text: secondText } = await readAnthropicStream(
+              followUpResponse,
+              encoder,
+              controller,
+            );
+
+            fullContent += secondText;
           }
 
           // Save the complete AI response to the database

@@ -10,6 +10,7 @@ interface ProfileRow {
 }
 
 interface EventRow {
+  id: string;
   user_id: string | null;
   event_type: string;
   title: string;
@@ -70,7 +71,7 @@ export async function buildGroupContext(
   const { data: events } = await client
     .from("events")
     .select(
-      "user_id, event_type, title, start_at, end_at, start_timezone, end_timezone, location, end_location, city, end_city, booking_reference, notes, address, terminal, gate, provider",
+      "id, user_id, event_type, title, start_at, end_at, start_timezone, end_timezone, location, end_location, city, end_city, booking_reference, notes, address, terminal, gate, provider",
     )
     .in("user_id", memberUserIds)
     .gte("end_at", fourteenDaysAgo)
@@ -109,7 +110,7 @@ export async function buildGroupContext(
       ? `${e.city ?? "?"} → ${e.end_city}`
       : (e.city ?? e.location ?? "");
 
-    let line = `- ${startDate} ${startTime}-${endTime} | ${e.event_type} | ${e.title} | ${cities} | ${owner}`;
+    let line = `- [${e.id}] ${startDate} ${startTime}-${endTime} | ${e.event_type} | ${e.title} | ${cities} | ${owner}`;
     if (e.booking_reference) line += ` | Ref: ${e.booking_reference}`;
     if (e.provider) line += ` | ${e.provider}`;
     if (e.terminal) line += ` | Terminal ${e.terminal}`;

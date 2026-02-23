@@ -2,7 +2,12 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import type { ChatMessage } from "@/lib/types";
 
-export function useChat(groupId: string | null, userId: string | undefined) {
+interface UseChatOptions {
+  /** Called when the AI updates an event note via tool use */
+  onNoteUpdated?: (eventId: string, note: string, eventTitle: string) => void;
+}
+
+export function useChat(groupId: string | null, userId: string | undefined, options?: UseChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -175,6 +180,11 @@ export function useChat(groupId: string | null, userId: string | undefined) {
               if (parsed.text) {
                 accumulated += parsed.text;
                 setStreamingContent(accumulated);
+              }
+
+              if (parsed.note_updated) {
+                const { event_id, note, event_title } = parsed.note_updated;
+                options?.onNoteUpdated?.(event_id, note, event_title);
               }
 
               if (parsed.done && accumulated.trim()) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { useChat } from "@/hooks/useChat";
 import { useGroups } from "@/hooks/useGroups";
@@ -24,6 +24,7 @@ export function Chat({ userId }: ChatProps) {
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
   const [input, setInput] = useState("");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [noteUpdates, setNoteUpdates] = useState<{ eventTitle: string; note: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -34,6 +35,14 @@ export function Chat({ userId }: ChatProps) {
     }
   }, [groups, selectedGroupId]);
 
+  const chatOptions = useMemo(() => ({
+    onNoteUpdated: (_eventId: string, note: string, eventTitle: string) => {
+      setNoteUpdates((prev) => [...prev, { eventTitle, note }]);
+      // Auto-clear after 5s
+      setTimeout(() => setNoteUpdates((prev) => prev.slice(1)), 5000);
+    },
+  }), []);
+
   const {
     messages,
     loading: chatLoading,
@@ -43,7 +52,7 @@ export function Chat({ userId }: ChatProps) {
     sendMessage,
     clearChat,
     clearError,
-  } = useChat(selectedGroupId, userId);
+  } = useChat(selectedGroupId, userId, chatOptions);
 
   const handleClearChat = useCallback(async () => {
     await clearChat();
@@ -245,6 +254,16 @@ export function Chat({ userId }: ChatProps) {
             </div>
           </div>
         )}
+
+        {/* Note update indicators */}
+        {noteUpdates.map((update, i) => (
+          <div
+            key={`note-${i}`}
+            className="mx-auto max-w-sm bg-green-50 text-green-700 rounded-lg px-3 py-2 text-xs text-center border border-green-200"
+          >
+            Note saved on <span className="font-medium">{update.eventTitle}</span>
+          </div>
+        ))}
 
         {/* Error message */}
         {error && (

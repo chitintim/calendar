@@ -91,6 +91,16 @@ export interface ReceivedEmail {
   created_at: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  group_id: string;
+  user_id: string | null;
+  role: "user" | "assistant" | "system";
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 // Urgency status for events (null = too far away to be relevant)
 export type UrgencyStatus = "green" | "amber" | "red" | "past" | null;
 
@@ -418,6 +428,36 @@ export type Database = {
           name?: string;
           start_date?: string | null;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      chat_messages: {
+        Row: {
+          id: string;
+          group_id: string;
+          user_id: string | null;
+          role: string;
+          content: string;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          group_id: string;
+          user_id?: string | null;
+          role: string;
+          content: string;
+          metadata?: Json;
+          id?: string;
+          created_at?: string;
+        };
+        Update: {
+          group_id?: string;
+          user_id?: string | null;
+          role?: string;
+          content?: string;
+          metadata?: Json;
+          id?: string;
+          created_at?: string;
         };
         Relationships: [];
       };

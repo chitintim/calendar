@@ -8,6 +8,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { Timeline } from "@/pages/Timeline";
 import { Groups } from "@/pages/Groups";
 import { Profile } from "@/pages/Profile";
+import { Chat } from "@/pages/Chat";
 
 export default function App() {
   const { user, loading, signIn, signOut, updatePassword, resetPassword } =
@@ -38,6 +39,10 @@ export default function App() {
         <Route
           path="/groups"
           element={<Groups userId={user?.id ?? ""} />}
+        />
+        <Route
+          path="/chat"
+          element={<Chat userId={user?.id ?? ""} />}
         />
         <Route
           path="/profile"

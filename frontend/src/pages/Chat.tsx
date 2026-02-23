@@ -145,7 +145,7 @@ export function Chat({ userId }: ChatProps) {
   }
 
   return (
-    <div className="fixed inset-0 top-12 md:top-14 bottom-14 md:bottom-0 flex flex-col bg-white z-10">
+    <div className="fixed inset-0 top-12 md:top-14 bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:bottom-0 flex flex-col bg-white z-10">
       {/* Group picker (only if multiple groups) */}
       {groups.length > 1 && (
         <div className="px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">

@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
 import { useEvents } from "@/hooks/useEvents";
 import { useProfile } from "@/hooks/useProfile";
 import { useCountdown } from "@/hooks/useCountdown";
@@ -234,10 +234,17 @@ export function Dashboard({ userId }: DashboardProps) {
   const leaveCountdownText = useCountdown(mustLeaveTime);
   const isUrgentHero = urgency === "amber" || urgency === "red";
 
-  // Copy to clipboard helper
-  const copyRef = useCallback((ref: string) => {
-    navigator.clipboard.writeText(ref);
+  // Copy to clipboard helper with brief "Copied!" feedback
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyToClipboard = useCallback((text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1500);
   }, []);
+  // Keep backward-compat wrapper for booking ref copies
+  const copyRef = useCallback((ref: string) => {
+    copyToClipboard(ref, `ref-${ref}`);
+  }, [copyToClipboard]);
 
   if (loading) {
     return (
@@ -329,6 +336,14 @@ export function Dashboard({ userId }: DashboardProps) {
                 {nextEvent.booking_reference} {"\uD83D\uDCCB"}
               </button>
             )}
+            {nextEvent.address && (
+              <button
+                onClick={() => copyToClipboard(nextEvent.address!, `hero-addr-${nextEvent.id}`)}
+                className="px-1.5 py-0.5 rounded bg-white/60 font-medium hover:bg-white/80 transition-colors"
+              >
+                {copiedId === `hero-addr-${nextEvent.id}` ? "\u2705 Copied!" : `\uD83D\uDCCD ${nextEvent.address}`}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -337,7 +352,7 @@ export function Dashboard({ userId }: DashboardProps) {
           2. CURRENTLY IN PROGRESS — "You're on BA245 to London"
           ============================================================ */}
       {currentEvent && !isUrgentHero && (
-        <CurrentEventCard event={currentEvent} onCopyRef={copyRef} />
+        <CurrentEventCard event={currentEvent} onCopyRef={copyRef} onCopyAddress={copyToClipboard} copiedId={copiedId} />
       )}
 
       {/* ============================================================
@@ -424,7 +439,7 @@ export function Dashboard({ userId }: DashboardProps) {
           </div>
 
           {/* Quick-access strip: booking ref, terminal, gate, address */}
-          <QuickAccessStrip event={nextEvent} onCopyRef={copyRef} />
+          <QuickAccessStrip event={nextEvent} onCopyRef={copyRef} onCopyAddress={copyToClipboard} copiedId={copiedId} />
 
           <div className="border-t border-gray-100">
             <EventCard
@@ -521,9 +536,13 @@ export function Dashboard({ userId }: DashboardProps) {
 function CurrentEventCard({
   event,
   onCopyRef,
+  onCopyAddress,
+  copiedId,
 }: {
   event: CalendarEvent;
   onCopyRef: (ref: string) => void;
+  onCopyAddress: (text: string, id: string) => void;
+  copiedId: string | null;
 }) {
   const now = new Date();
   const end = new Date(event.end_at);
@@ -591,14 +610,12 @@ function CurrentEventCard({
             </span>
           )}
           {event.address && (
-            <a
-              href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-1 rounded-md bg-white/70 font-medium hover:bg-white transition-colors underline"
+            <button
+              onClick={() => onCopyAddress(event.address!, `current-addr-${event.id}`)}
+              className="px-2 py-1 rounded-md bg-white/70 font-medium hover:bg-white transition-colors"
             >
-              {"\uD83D\uDDFA\uFE0F"} Navigate
-            </a>
+              {copiedId === `current-addr-${event.id}` ? "\u2705 Copied!" : `\uD83D\uDCCD ${event.address}`}
+            </button>
           )}
         </div>
       )}
@@ -610,9 +627,13 @@ function CurrentEventCard({
 function QuickAccessStrip({
   event,
   onCopyRef,
+  onCopyAddress,
+  copiedId,
 }: {
   event: CalendarEvent;
   onCopyRef: (ref: string) => void;
+  onCopyAddress: (text: string, id: string) => void;
+  copiedId: string | null;
 }) {
   const hasInfo =
     event.booking_reference ||
@@ -643,14 +664,12 @@ function QuickAccessStrip({
         </span>
       )}
       {event.address && (
-        <a
-          href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-2 py-1 rounded-md bg-white border border-gray-200 font-medium hover:bg-gray-50 transition-colors underline"
+        <button
+          onClick={() => onCopyAddress(event.address!, `quick-addr-${event.id}`)}
+          className="px-2 py-1 rounded-md bg-white border border-gray-200 font-medium hover:bg-gray-50 transition-colors"
         >
-          {"\uD83D\uDDFA\uFE0F"} Map
-        </a>
+          {copiedId === `quick-addr-${event.id}` ? "\u2705 Copied!" : `\uD83D\uDCCD ${event.address}`}
+        </button>
       )}
     </div>
   );

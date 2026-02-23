@@ -24,6 +24,15 @@ TITLE FORMATS:
 - Bus: "OPERATOR ORIGIN → DESTINATION" (e.g., "FlixBus Munich → Vienna")
 - Transfer: "TRANSFER ORIGIN → DESTINATION" (e.g., "Transfer CDG Airport → Hotel")
 
+ADDRESS FIELD (IMPORTANT — always set this):
+- The address field should contain a navigable address or location that a user can paste into a maps app (Google Maps, Apple Maps, Citymapper, etc.) to get directions.
+- Flights: Use the full airport name with terminal if known (e.g., "London Heathrow Airport, Terminal 2", "Hong Kong International Airport, Terminal 1"). Include the IATA code for clarity.
+- Hotels: Use the hotel's full street address if in the booking. If no street address, use "Hotel Name, City" (e.g., "Hilton Tower Bridge, London SE1 2BY" or "Hilton Tower Bridge, London").
+- Trains: Use the full station name and address if available (e.g., "London St Pancras International, Euston Road, London N1C 4QP"). If no address, just the station name.
+- Restaurants/activities: Full venue address if in the booking, otherwise "Venue Name, City".
+- Car rental: Office/counter location with address if available.
+- NEVER leave address as null if you can construct a reasonable navigable location from the booking data. Even "Hong Kong International Airport" is useful — it will resolve in any maps app.
+
 CITY FIELDS (IMPORTANT — always set these):
 - city: The normalized city name for the start/departure/venue location. Just the city name — NO airport names, station names, terminal info, or venue names. Examples: "Hong Kong", "London", "Paris", "Dubai", "Tokyo", "New York".
 - endCity: For transit events (flights, trains, ferries, buses, transfers), this is the normalized arrival city name. Same rules — just the city. For single-location events (hotels, restaurants, activities), set to null.
@@ -160,7 +169,7 @@ const JSON_SCHEMA = {
           isAllDay: { type: "boolean" as const },
           address: {
             type: ["string", "null"] as const,
-            description: "Full street address if available (hotel address, restaurant address, venue address)",
+            description: "Navigable address for maps apps. Flights: airport name with terminal (e.g. 'London Heathrow Airport, Terminal 2'). Hotels: street address or 'Hotel Name, City'. Trains: station name with address. Always fill this — even just the airport/station name is useful.",
           },
           terminal: {
             type: ["string", "null"] as const,

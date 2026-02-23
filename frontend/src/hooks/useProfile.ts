@@ -72,11 +72,15 @@ export function useProfile(userId: string | undefined) {
 
       if (uploadError) return { error: uploadError };
 
-      // Save the path to the profile
+      // Save the path with a cache-busting version param.
+      // Supabase Storage ignores query params, but the browser sees a new URL
+      // and won't serve the old cached image.
+      const versionedPath = `${path}?v=${Date.now()}`;
+
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
-          avatar_url: path,
+          avatar_url: versionedPath,
           updated_at: new Date().toISOString(),
         })
         .eq("id", userId);
@@ -94,11 +98,13 @@ export function useProfile(userId: string | undefined) {
     async () => {
       if (!userId || !profile?.avatar_url) return { error: new Error("No avatar") };
 
-      // Delete from storage — ignore errors since the file may already be gone
+      // Delete from storage — ignore errors since the file may already be gone.
+      // Strip any cache-busting query params (e.g., "?v=123") to get the real path.
+      const storagePath = profile.avatar_url.split("?")[0]!;
       try {
         await supabase.storage
           .from("avatars")
-          .remove([profile.avatar_url]);
+          .remove([storagePath]);
       } catch {
         // Storage delete can throw TypeError: Failed to fetch on network issues.
         // Continue to clear the profile reference regardless.

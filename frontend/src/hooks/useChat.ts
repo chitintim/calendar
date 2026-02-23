@@ -1,8 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import type { ChatMessage } from "@/lib/types";
-
-const SUPABASE_URL = "https://jldehgilcwusrpgrctwf.supabase.co";
 
 export function useChat(groupId: string | null, userId: string | undefined) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -113,12 +111,13 @@ export function useChat(groupId: string | null, userId: string | undefined) {
         } = await supabase.auth.getSession();
 
         const resp = await fetch(
-          `${SUPABASE_URL}/functions/v1/chat-respond`,
+          `${supabaseUrl}/functions/v1/chat-respond`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${session?.access_token}`,
+              apikey: supabaseAnonKey,
             },
             body: JSON.stringify({ group_id: groupId }),
           },

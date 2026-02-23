@@ -30,6 +30,146 @@ interface EventRow {
   provider: string | null;
 }
 
+// Event types that represent travel between places
+const TRANSIT_TYPES = new Set(["flight", "train", "ferry", "bus", "transfer"]);
+
+// Cities commonly used as transit hubs (layovers, not destinations)
+const TRANSIT_HUB_CITIES = new Set([
+  "abu dhabi", "dubai", "doha", "istanbul", "frankfurt", "amsterdam",
+  "singapore", "kuala lumpur", "bangkok",
+]);
+
+interface DetectedTripInfo {
+  signature: string; // e.g. "london:2026-03-03"
+  cities: string[];
+  startDate: string; // ISO date
+  endDate: string;
+}
+
+/**
+ * Lightweight server-side trip detection that mirrors the frontend algorithm.
+ * Groups events per user into trips by tracking home/away transitions,
+ * then computes trip signatures identical to the frontend's tripSignature().
+ */
+function detectTripsForContext(
+  events: EventRow[],
+  profileMap: Map<string, ProfileRow>,
+): DetectedTripInfo[] {
+  // Group events by user
+  const byUser = new Map<string, EventRow[]>();
+  for (const e of events) {
+    if (!e.user_id) continue;
+    const list = byUser.get(e.user_id) ?? [];
+    list.push(e);
+    byUser.set(e.user_id, list);
+  }
+
+  const allTrips: DetectedTripInfo[] = [];
+
+  for (const [uid, userEvents] of byUser) {
+    const profile = profileMap.get(uid);
+    const homeNorm = profile?.base_city?.toLowerCase().trim() ?? null;
+    if (!homeNorm) continue; // Need home city to detect trips
+
+    const sorted = [...userEvents].sort(
+      (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
+    );
+
+    let tripBuffer: EventRow[] = [];
+    let isAway = false;
+
+    for (const event of sorted) {
+      const dest = TRANSIT_TYPES.has(event.event_type)
+        ? event.end_city?.toLowerCase().trim()
+        : (event.city?.toLowerCase().trim() ?? null);
+      const isTransit = TRANSIT_TYPES.has(event.event_type);
+
+      if (!isAway) {
+        if ((isTransit || dest) && dest && dest !== homeNorm) {
+          isAway = true;
+          tripBuffer.push(event);
+        }
+      } else {
+        tripBuffer.push(event);
+        if (isTransit && dest === homeNorm) {
+          const trip = buildTripInfo(tripBuffer, homeNorm);
+          if (trip) allTrips.push(trip);
+          tripBuffer = [];
+          isAway = false;
+        }
+      }
+    }
+
+    if (tripBuffer.length > 0) {
+      const trip = buildTripInfo(tripBuffer, homeNorm);
+      if (trip) allTrips.push(trip);
+    }
+  }
+
+  // Deduplicate by signature (multiple users may produce the same trip)
+  const seen = new Set<string>();
+  return allTrips.filter((t) => {
+    if (seen.has(t.signature)) return false;
+    seen.add(t.signature);
+    return true;
+  });
+}
+
+function buildTripInfo(events: EventRow[], homeNorm: string): DetectedTripInfo | null {
+  // Extract unique destination cities (not home, filter transit hubs)
+  const citySet = new Map<string, string>(); // normalized → display
+  for (const e of events) {
+    const dest = TRANSIT_TYPES.has(e.event_type)
+      ? (e.end_city ?? null)
+      : (e.city ?? null);
+    if (!dest) continue;
+    const norm = dest.toLowerCase().trim();
+    if (norm !== homeNorm && !citySet.has(norm)) {
+      citySet.set(norm, dest);
+    }
+  }
+
+  // Filter out transit hubs with short stays
+  const stayDurations = new Map<string, number>();
+  for (let i = 0; i < events.length; i++) {
+    const dest = TRANSIT_TYPES.has(events[i]!.event_type)
+      ? events[i]!.end_city : events[i]!.city;
+    if (!dest) continue;
+    const norm = dest.toLowerCase().trim();
+    const arrivalTime = new Date(events[i]!.end_at).getTime();
+    const stayEnd = i + 1 < events.length
+      ? new Date(events[i + 1]!.start_at).getTime()
+      : arrivalTime;
+    const stayHours = (stayEnd - arrivalTime) / (1000 * 60 * 60);
+    stayDurations.set(norm, (stayDurations.get(norm) ?? 0) + stayHours);
+  }
+
+  const cities: string[] = [];
+  for (const [norm, display] of citySet) {
+    const stay = stayDurations.get(norm) ?? 0;
+    if (stay >= 8 || !TRANSIT_HUB_CITIES.has(norm)) {
+      cities.push(display);
+    }
+  }
+
+  if (cities.length === 0 && citySet.size > 0) {
+    cities.push([...citySet.values()][0]!);
+  }
+  if (cities.length === 0) return null;
+
+  // Signature: sorted lowercase cities + ISO start date (same as frontend)
+  const citiesKey = cities.map((c) => c.toLowerCase().trim()).sort().join(",");
+  const startDate = events[0]!.start_at.split("T")[0]!;
+  const endDate = events[events.length - 1]!.end_at.split("T")[0]!;
+
+  return {
+    signature: `${citiesKey}:${startDate}`,
+    cities,
+    startDate,
+    endDate,
+  };
+}
+
 /**
  * Build a structured text context of the group's itinerary for the AI.
  * Includes: group info, member profiles, chronological events, and computed together periods.
@@ -124,7 +264,21 @@ export async function buildGroupContext(
     lines.push("  (no events found)");
   }
 
-  // 5. Fetch trip notes
+  // 5. Detect trips and show their signatures
+  const detectedTrips = detectTripsForContext(
+    (events ?? []) as EventRow[],
+    profileMap,
+  );
+
+  if (detectedTrips.length > 0) {
+    lines.push("");
+    lines.push("DETECTED TRIPS (use these exact signatures for trip notes):");
+    for (const trip of detectedTrips) {
+      lines.push(`- [${trip.signature}] ${trip.cities.join(", ")} (${trip.startDate} to ${trip.endDate})`);
+    }
+  }
+
+  // 6. Fetch trip notes
   const { data: tripNotes } = await client
     .from("timeline_comments")
     .select("trip_signature, content")

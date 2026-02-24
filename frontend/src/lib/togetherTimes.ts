@@ -433,7 +433,10 @@ export function buildLocationSegments(
       cityStartTime = arrivalTime;
     } else {
       // Non-transit event — user is at this location
-      const eventCity = extractCity(event.location);
+      // Prefer the structured city column (set by the parser) over fuzzy extraction
+      // from the location string, which can misparse venue names like
+      // "Everyman Chelsea, Screen 1" → "Screen 1" instead of "London".
+      const eventCity = event.city ?? extractCity(event.location);
       if (eventCity && (!currentCity || normalizeCity(eventCity) !== normalizeCity(currentCity))) {
         // City changed (maybe they traveled without a flight record)
         if (currentCity && cityStartTime) {

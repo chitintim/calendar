@@ -618,9 +618,25 @@ export function computeGaps(
     if (durationHours < 6) continue;
 
     const lastCity = getArrivalCity(current) ?? getDepartureCity(current);
+
     const isAtHome = homeCity
       ? normalizeCity(lastCity ?? "") === normalizeCity(homeCity)
       : false;
+
+    // Skip same-city gaps when user is AWAY from home — these are just
+    // normal downtime during a trip stay (e.g. time between activities in
+    // London during a London trip). Gaps at home between trips are kept
+    // as they usefully show how much time you have between trips.
+    if (!isAtHome) {
+      const nextCity = getDepartureCity(next) ?? getArrivalCity(next);
+      if (
+        lastCity &&
+        nextCity &&
+        normalizeCity(lastCity) === normalizeCity(nextCity)
+      ) {
+        continue;
+      }
+    }
 
     gaps.push({
       startAt: gapStart,

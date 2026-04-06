@@ -123,6 +123,7 @@ interface TripSectionProps {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onUpdateNote?: (eventId: string, note: string) => Promise<void>;
+  onDelete?: (eventId: string) => Promise<void>;
   tripNote?: string;
   onUpdateTripNote?: (note: string) => Promise<void>;
 }
@@ -137,6 +138,7 @@ function TripSection({
   selected,
   onToggleSelect,
   onUpdateNote,
+  onDelete,
   tripNote,
   onUpdateTripNote,
 }: TripSectionProps) {
@@ -305,6 +307,7 @@ function TripSection({
                         ownerColor={ownerProps?.ownerColor}
                         ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
                         onUpdateNote={mode === "view" && item.event.user_id === userId ? onUpdateNote : undefined}
+                        onDelete={mode === "view" && item.event.user_id === userId ? onDelete : undefined}
                       />
                     </div>
                   );
@@ -352,7 +355,7 @@ export function Timeline({ userId }: TimelineProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const { allEvents, togetherPeriods, gaps, profiles, tripNotes, loading, deleteEvents, updateEventNote, updateTripNote } =
+  const { allEvents, togetherPeriods, gaps, profiles, tripNotes, loading, deleteEvents, deleteEvent, updateEventNote, updateTripNote } =
     useGroupTimeline({ userId, showPast });
 
   const myProfile = profiles[userId];
@@ -652,6 +655,7 @@ export function Timeline({ userId }: TimelineProps) {
           selected={selected}
           onToggleSelect={toggleSelect}
           onUpdateNote={mode === "view" ? updateEventNote : undefined}
+          onDelete={mode === "view" ? deleteEvent : undefined}
           tripNote={tripNotes.get(tripSignature(trip))?.content}
           onUpdateTripNote={mode === "view" ? (note) => updateTripNote(tripSignature(trip), note) : undefined}
         />
@@ -703,6 +707,7 @@ export function Timeline({ userId }: TimelineProps) {
                       ownerColor={ownerProps?.ownerColor}
                       ownerAvatarUrl={ownerProps?.ownerAvatarUrl}
                       onUpdateNote={mode === "view" && item.event.user_id === userId ? updateEventNote : undefined}
+                      onDelete={mode === "view" && item.event.user_id === userId ? deleteEvent : undefined}
                     />
                   </div>
                 );

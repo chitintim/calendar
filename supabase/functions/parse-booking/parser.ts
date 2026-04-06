@@ -11,7 +11,8 @@ RULES:
 - If a time is ambiguous, use context clues (airport codes, city names) to determine the correct timezone.
 - The booking reference / confirmation number is critical — always extract it if present.
 - For multi-leg flights, create a separate event for EACH leg.
-- If the email is NOT a booking confirmation (e.g., marketing email, newsletter), return an empty events array.
+- If the email is a CANCELLATION or booking cancellation confirmation, use the output_cancellation tool instead. Extract the booking reference(s) and any identifying details so the system can find and remove the cancelled events.
+- If the email is NOT a booking confirmation or cancellation (e.g., marketing email, newsletter), return an empty events array.
 
 TITLE FORMATS:
 - Flight: "AIRLINE_CODE FLIGHT_NUM ORIGIN → DESTINATION" (e.g., "EY 871 HKG → AUH")
@@ -234,7 +235,7 @@ const JSON_SCHEMA = {
  * Build the "KNOWN ITINERARY" context string from existing events.
  */
 function buildItineraryContext(
-  existingEvents: { event_type: string; title: string; start_at: string; start_timezone: string; end_at: string; end_timezone: string; location: string | null; end_location: string | null }[],
+  existingEvents: { event_type: string; title: string; start_at: string; start_timezone: string; end_at: string; end_timezone: string; location: string | null; end_location: string | null; booking_reference?: string | null }[],
   userHomeBase: string | null
 ): string {
   let context = "";
@@ -243,7 +244,8 @@ function buildItineraryContext(
     context += "\nKNOWN ITINERARY (user's existing events, for travel time context):\n";
     for (const e of existingEvents) {
       const loc = e.end_location ? `${e.location} → ${e.end_location}` : e.location || "unknown";
-      context += `- ${e.start_at} ${e.event_type}: ${e.title} at ${loc}\n`;
+      const ref = e.booking_reference ? ` [ref: ${e.booking_reference}]` : "";
+      context += `- ${e.start_at} ${e.event_type}: ${e.title} at ${loc}${ref}\n`;
     }
   }
 
@@ -320,4 +322,106 @@ ${emailBody}`;
   return result;
 }
 
-export type { ParsedEvent, ParseResult };
+// ==========================================
+// Cancellation parsing
+// ==========================================
+
+interface CancellationResult {
+  bookingReferences: string[];
+  provider: string | null;
+  description: string;
+}
+
+const CANCELLATION_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    bookingReferences: {
+      type: "array" as const,
+      items: { type: "string" as const },
+      description: "Booking reference codes / PNRs from the cancellation email",
+    },
+    provider: {
+      type: ["string", "null"] as const,
+      description: "Service provider name (airline, hotel, etc.) if identifiable",
+    },
+    description: {
+      type: "string" as const,
+      description: "Brief description of what was cancelled (e.g. 'Emirates flights HKG-DXB-CDG on 16-17 Apr')",
+    },
+  },
+  required: ["bookingReferences", "provider", "description"],
+};
+
+export async function parseBookingOrCancellation(
+  emailSubject: string,
+  emailBody: string,
+  apiKey: string,
+  existingEvents?: { event_type: string; title: string; start_at: string; start_timezone: string; end_at: string; end_timezone: string; location: string | null; end_location: string | null; booking_reference: string | null }[],
+  userHomeBase?: string | null
+): Promise<{ type: "booking"; result: ParseResult } | { type: "cancellation"; result: CancellationResult } | { type: "none" }> {
+  const itineraryContext = buildItineraryContext(existingEvents ?? [], userHomeBase ?? null);
+
+  const userMessage = `Parse this email. If it is a booking confirmation, extract the events. If it is a cancellation, extract the cancelled booking references. If it is neither, return an empty events array.
+${itineraryContext}
+Subject: ${emailSubject}
+
+Body:
+${emailBody}`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+      tools: [
+        {
+          name: "output_booking_events",
+          description: "Output the parsed booking events as structured data",
+          input_schema: JSON_SCHEMA,
+        },
+        {
+          name: "output_cancellation",
+          description: "Output cancellation details when the email is a booking cancellation",
+          input_schema: CANCELLATION_SCHEMA,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API error (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+
+  const toolUse = data.content?.find(
+    (block: { type: string }) => block.type === "tool_use"
+  );
+
+  if (!toolUse?.input) {
+    // AI chose to respond with text (not a booking or cancellation)
+    return { type: "none" };
+  }
+
+  if (toolUse.name === "output_cancellation") {
+    return { type: "cancellation", result: toolUse.input as CancellationResult };
+  }
+
+  // Default: booking events
+  const result = toolUse.input as ParseResult;
+  if (!Array.isArray(result.events) || result.events.length === 0) {
+    return { type: "none" };
+  }
+
+  return { type: "booking", result };
+}
+
+export type { ParsedEvent, ParseResult, CancellationResult };

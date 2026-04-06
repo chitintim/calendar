@@ -163,7 +163,7 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
     return computeGaps(myEvents, myProfile?.base_city ?? null);
   }, [myEvents, profiles, userId]);
 
-  // Delete events
+  // Delete events (bulk)
   const deleteEvents = useCallback(
     async (eventIds: string[]) => {
       const { error: delErr } = await supabase
@@ -174,6 +174,23 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
       if (delErr) return { error: delErr.message };
       await fetchData();
       return {};
+    },
+    [fetchData]
+  );
+
+  // Delete single event (optimistic)
+  const deleteEvent = useCallback(
+    async (eventId: string) => {
+      setAllEvents((prev) => prev.filter((e) => e.id !== eventId));
+      const { error: delErr } = await supabase
+        .from("events")
+        .delete()
+        .eq("id", eventId);
+
+      if (delErr) {
+        console.error("Failed to delete event:", delErr);
+        await fetchData();
+      }
     },
     [fetchData]
   );
@@ -287,6 +304,7 @@ export function useGroupTimeline(options: UseGroupTimelineOptions) {
     loading,
     error,
     deleteEvents,
+    deleteEvent,
     updateEventNote,
     updateTripNote,
     refetch: fetchData,

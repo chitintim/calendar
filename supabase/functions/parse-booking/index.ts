@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { parseBookingEmail } from "./parser.ts";
+import { parseBookingEmail, parseBookingOrCancellation } from "./parser.ts";
 import {
   lookupUserBySenderEmail,
   lookupGroupMembers,
@@ -8,6 +8,7 @@ import {
   createReceivedEmail,
   updateEmailStatus,
   saveEvents,
+  deleteEventsByBookingReference,
 } from "./db.ts";
 import type { GroupMemberInfo } from "./db.ts";
 import type { ParsedEvent } from "./parser.ts";
@@ -203,9 +204,9 @@ Deno.serve(async (req: Request) => {
     const existingEvents = await fetchUserEventsForContext(userInfo.userId);
     console.log(`[step 5] Found ${existingEvents.length} existing events for context`);
 
-    // Step 6: Parse booking with Claude (with itinerary context)
-    console.log(`[step 6] Calling Claude API to parse booking (${fullContent.length} chars)...`);
-    const parseResult = await parseBookingEmail(
+    // Step 6: Parse booking OR cancellation with Claude
+    console.log(`[step 6] Calling Claude API to parse email (${fullContent.length} chars)...`);
+    const classification = await parseBookingOrCancellation(
       emailSubject,
       fullContent,
       anthropicApiKey,
@@ -213,8 +214,35 @@ Deno.serve(async (req: Request) => {
       userInfo.homeBase
     );
 
-    if (parseResult.events.length === 0) {
-      console.log("No booking events found in email");
+    // Handle cancellation emails
+    if (classification.type === "cancellation") {
+      const { bookingReferences, description } = classification.result;
+      console.log(`Detected cancellation: ${description} (refs: ${bookingReferences.join(", ")})`);
+
+      const deletedEvents = await deleteEventsByBookingReference(
+        userInfo.userId,
+        bookingReferences
+      );
+
+      await updateEmailStatus(emailRowId, "parsed", deletedEvents.length);
+      console.log(`Cancelled ${deletedEvents.length} event(s) from database`);
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          cancellation: true,
+          description,
+          deletedEvents: deletedEvents.length,
+          deletedTitles: deletedEvents.map((e) => e.title),
+          senderId: userInfo.userId,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Handle no events found
+    if (classification.type === "none") {
+      console.log("No booking events or cancellation found in email");
       await updateEmailStatus(emailRowId, "no_events", 0);
       return new Response(
         JSON.stringify({ ok: true, events: 0 }),
@@ -222,6 +250,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Handle booking confirmation
+    const parseResult = classification.result;
     console.log(`Parsed ${parseResult.events.length} event(s)`);
 
     // Step 6b: Match passenger names to group members

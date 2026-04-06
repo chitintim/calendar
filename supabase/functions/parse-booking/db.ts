@@ -174,6 +174,7 @@ export interface ExistingEvent {
   end_timezone: string;
   location: string | null;
   end_location: string | null;
+  booking_reference: string | null;
 }
 
 /**
@@ -190,7 +191,7 @@ export async function fetchUserEventsForContext(
 
   const { data, error } = await supabase
     .from("events")
-    .select("event_type, title, start_at, start_timezone, end_at, end_timezone, location, end_location")
+    .select("event_type, title, start_at, start_timezone, end_at, end_timezone, location, end_location, booking_reference")
     .eq("user_id", userId)
     .gte("start_at", twoWeeksBefore)
     .lte("start_at", twoWeeksAfter)
@@ -280,6 +281,75 @@ export async function updateEmailStatus(
   if (error) {
     console.error("Failed to update email status:", error);
   }
+}
+
+// ==========================================
+// Cancellation: delete events by booking reference
+// ==========================================
+
+export interface DeletedEvent {
+  id: string;
+  title: string;
+  booking_reference: string;
+}
+
+/**
+ * Find and delete events matching the given booking references for a user.
+ * Returns the list of deleted events.
+ */
+export async function deleteEventsByBookingReference(
+  userId: string,
+  bookingReferences: string[]
+): Promise<DeletedEvent[]> {
+  const supabase = getSupabaseClient();
+  const deleted: DeletedEvent[] = [];
+
+  for (const ref of bookingReferences) {
+    if (!ref) continue;
+
+    // Find matching events for this user
+    const { data: matches, error: findErr } = await supabase
+      .from("events")
+      .select("id, title, booking_reference")
+      .eq("user_id", userId)
+      .eq("booking_reference", ref);
+
+    if (findErr) {
+      console.error(`Failed to find events with ref ${ref}:`, findErr);
+      continue;
+    }
+
+    if (!matches || matches.length === 0) {
+      console.log(`No events found for user ${userId} with ref ${ref}`);
+      continue;
+    }
+
+    // Also delete matching events for group members (same booking ref)
+    const { data: allMatches, error: allFindErr } = await supabase
+      .from("events")
+      .select("id, title, booking_reference")
+      .eq("booking_reference", ref);
+
+    const idsToDelete = (allMatches ?? matches).map((e) => e.id);
+
+    const { error: delErr } = await supabase
+      .from("events")
+      .delete()
+      .in("id", idsToDelete);
+
+    if (delErr) {
+      console.error(`Failed to delete events with ref ${ref}:`, delErr);
+      continue;
+    }
+
+    for (const m of allMatches ?? matches) {
+      deleted.push(m as DeletedEvent);
+    }
+
+    console.log(`Deleted ${idsToDelete.length} event(s) with ref ${ref}`);
+  }
+
+  return deleted;
 }
 
 // ==========================================

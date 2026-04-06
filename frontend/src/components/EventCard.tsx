@@ -28,6 +28,8 @@ interface EventCardProps {
   onToggleSelect?: (id: string) => void;
   // Note editing
   onUpdateNote?: (eventId: string, note: string) => Promise<void>;
+  // Delete
+  onDelete?: (eventId: string) => Promise<void>;
 }
 
 export function EventCard({
@@ -42,11 +44,14 @@ export function EventCard({
   selected = false,
   onToggleSelect,
   onUpdateNote,
+  onDelete,
 }: EventCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState(event.notes ?? "");
   const [savingNote, setSavingNote] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletingEvent, setDeletingEvent] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const urgency = getUrgencyStatus(event);
@@ -373,6 +378,48 @@ export function EventCard({
                 + Add note
               </button>
             ) : null}
+
+            {/* Delete button */}
+            {onDelete && (
+              <div className="pt-1 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+                {confirmingDelete ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-red-600 font-medium">Delete this event?</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setConfirmingDelete(false)}
+                        disabled={deletingEvent}
+                        className="text-[10px] px-2.5 py-1 rounded-md text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setDeletingEvent(true);
+                          await onDelete(event.id);
+                          setDeletingEvent(false);
+                          setConfirmingDelete(false);
+                        }}
+                        disabled={deletingEvent}
+                        className="text-[10px] px-2.5 py-1 rounded-md bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+                      >
+                        {deletingEvent ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmingDelete(true)}
+                    className="flex items-center gap-1 text-xs text-gray-300 hover:text-red-500 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

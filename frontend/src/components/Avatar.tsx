@@ -22,7 +22,7 @@ const COLORS = {
 };
 
 const SUPABASE_STORAGE_URL =
-  "https://jldehgilcwusrpgrctwf.supabase.co/storage/v1/object/public/avatars";
+  "https://wwpmmkudqeqpbtezfupa.supabase.co/storage/v1/object/public/avatars";
 
 export function Avatar({
   avatarUrl,

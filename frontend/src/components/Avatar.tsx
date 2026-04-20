@@ -9,10 +9,10 @@ interface AvatarProps {
 }
 
 const SIZES = {
-  xs: "w-5 h-5 text-[10px]",
-  sm: "w-6 h-6 text-xs",
-  md: "w-8 h-8 text-sm",
-  lg: "w-16 h-16 text-xl",
+  xs: "w-8 h-8 text-xs",
+  sm: "w-10 h-10 text-sm",
+  md: "w-14 h-14 text-base",
+  lg: "w-24 h-24 text-3xl",
 };
 
 const COLORS = {
